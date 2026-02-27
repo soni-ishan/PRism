@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests that require real agent implementations (auto-skipped when agents are not ready)",
+]
