@@ -15,7 +15,7 @@ from agents.timing_agent import run
 
 def _run(ts: datetime, release_date: date | None = None):
     """Helper to drive the async ``run`` from sync test code."""
-    return asyncio.get_event_loop().run_until_complete(
+    return asyncio.run(
         run(deploy_timestamp=ts, release_date=release_date)
     )
 
@@ -193,7 +193,7 @@ class TestCombined:
 
     def test_no_timestamp_uses_now(self):
         """When no timestamp is provided, the agent should still return a valid result."""
-        result = asyncio.get_event_loop().run_until_complete(run())
+        result = asyncio.run(run())
         assert result.agent_name == "Timing Agent"
         assert 0 <= result.risk_score_modifier <= 100
 
