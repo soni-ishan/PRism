@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator  # type: ignore
+from pydantic import BaseModel, Field, model_validator
 
 
 class AgentResult(BaseModel):

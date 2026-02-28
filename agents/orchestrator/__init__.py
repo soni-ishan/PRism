@@ -181,7 +181,7 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
         return VerdictReport(
             confidence_score=0,
             decision="blocked",
-            risk_brief=f"Verdict Agent crashed: {exc}",
+            risk_brief="Verdict Agent encountered an internal error while generating a verdict.",
             agent_results=agent_results,
         )
 
