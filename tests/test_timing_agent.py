@@ -104,7 +104,8 @@ class TestHoliday:
         # Christmas, Fri 10 AM → day=+30, time=0, holiday=+20 → 50 → "warning"
         ts = datetime(2026, 12, 25, 10, 0, tzinfo=timezone.utc)
         result = _run(ts)
-        assert result.risk_score_modifier >= 20
+        assert result.status == "warning"
+        assert result.risk_score_modifier == 50
         assert any("Christmas" in f for f in result.findings)
 
     def test_christmas_eve(self):
