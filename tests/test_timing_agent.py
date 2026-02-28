@@ -1,14 +1,12 @@
 """
 Tests for the Timing Agent.
-Parameterized over known timestamps to validate scoring rules.
+Uses known timestamps to validate scoring rules.
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import date, datetime, timezone
-
-import pytest
 
 from agents.timing_agent import run
 
@@ -45,7 +43,7 @@ class TestDayOfWeek:
         assert result.status == "pass"
         assert result.risk_score_modifier == 0
 
-    def test_sunday_is_warning(self):
+    def test_sunday_is_boundary_pass(self):
         # Sunday 11:00 AM  →  day=+20, time=0  →  20 → "pass" (boundary)
         ts = datetime(2026, 3, 1, 11, 0, tzinfo=timezone.utc)
         result = _run(ts)
@@ -103,7 +101,7 @@ class TestTimeOfDay:
 
 class TestHoliday:
     def test_christmas_day(self):
-        # Christmas, Wed 10 AM → day=0, time=0, holiday=+20 → 20 → "pass"
+        # Christmas, Fri 10 AM → day=+30, time=0, holiday=+20 → 50 → "warning"
         ts = datetime(2026, 12, 25, 10, 0, tzinfo=timezone.utc)
         result = _run(ts)
         assert result.risk_score_modifier >= 20
