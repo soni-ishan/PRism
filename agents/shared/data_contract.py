@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator  # type: ignore
 
 
 class AgentResult(BaseModel):
@@ -101,6 +101,19 @@ class VerdictReport(BaseModel):
         default_factory=list,
         description="Raw payloads from all specialist agents",
     )
+
+    # ── Invariant enforcement ──────────────────────────────────────────
+
+    @model_validator(mode="after")
+    def _check_invariants(self) -> "VerdictReport":
+        has_critical = any(r.status == "critical" for r in self.agent_results)
+        if has_critical and self.decision != "blocked":
+            raise ValueError("Decision must be 'blocked' when any agent is critical")
+        if self.confidence_score < 70 and self.decision != "blocked":
+            raise ValueError("Decision must be 'blocked' when confidence_score < 70")
+        if self.decision == "greenlight" and self.rollback_playbook is not None:
+            raise ValueError("rollback_playbook must be None when decision is 'greenlight'")
+        return self
 
     # ── Serialisation helpers ──────────────────────────────────────────
 

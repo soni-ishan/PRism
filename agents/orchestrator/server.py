@@ -24,7 +24,7 @@ import os
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from agents.orchestrator import PRPayload, orchestrate
@@ -95,11 +95,24 @@ async def _fetch_pr_details(
         headers=headers,
         timeout=30.0,
     ) as client:
-        # Fetch changed file list
+        # Fetch changed file list (handle pagination)
         try:
-            resp = await client.get(f"/repos/{repo}/pulls/{pr_number}/files")
-            resp.raise_for_status()
-            changed_files = [f["filename"] for f in resp.json()]
+            page = 1
+            per_page = 100
+            while True:
+                resp = await client.get(
+                    f"/repos/{repo}/pulls/{pr_number}/files",
+                    params={"per_page": per_page, "page": page},
+                )
+                resp.raise_for_status()
+                batch = resp.json()
+                if not isinstance(batch, list):
+                    logger.warning("Unexpected response when fetching changed files: %r", batch)
+                    break
+                changed_files.extend(f["filename"] for f in batch if "filename" in f)
+                if len(batch) < per_page or "next" not in resp.links:
+                    break
+                page += 1
         except Exception as exc:
             logger.warning("Failed to fetch changed files: %s", exc)
 
@@ -139,9 +152,24 @@ def _parse_github_webhook(body: dict) -> PRPayload | None:
     )
 
 
+async def _run_orchestration(payload: PRPayload) -> None:
+    """Background task: fetch PR details and run the PRism pipeline."""
+    if payload.repo and payload.pr_number:
+        changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
+        payload.changed_files = changed_files
+        payload.diff = diff
+    verdict = await orchestrate(payload)
+    logger.info(
+        "Background orchestration complete for PR #%d: %s",
+        payload.pr_number,
+        verdict.decision,
+    )
+
+
 @app.post("/webhook/pr")
 async def handle_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_hub_signature_256: str | None = Header(default=None),
     x_github_event: str | None = Header(default=None),
 ):
@@ -168,13 +196,12 @@ async def handle_webhook(
             status_code=200,
         )
 
-    # Fetch additional PR data from GitHub API
-    if payload.repo and payload.pr_number:
-        changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
-        payload.changed_files = changed_files
-        payload.diff = diff
+    # Validate payload before orchestration
+    if not payload.repo or payload.pr_number <= 0:
+        return JSONResponse(
+            {"status": "ignored", "reason": "Malformed webhook: missing repo or pr_number"},
+            status_code=400,
+        )
 
-    # Run the full PRism pipeline
-    verdict = await orchestrate(payload)
-
-    return verdict.model_dump()
+    background_tasks.add_task(_run_orchestration, payload)
+    return JSONResponse({"status": "accepted", "pr_number": payload.pr_number}, status_code=202)
