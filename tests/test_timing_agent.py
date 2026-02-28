@@ -1,6 +1,6 @@
 """
 Tests for the Timing Agent.
-Parameterized over known timestamps to validate scoring rules.
+Uses known timestamps to validate scoring rules.
 """
 
 from __future__ import annotations
@@ -8,14 +8,12 @@ from __future__ import annotations
 import asyncio
 from datetime import date, datetime, timezone
 
-import pytest
-
 from agents.timing_agent import run
 
 
 def _run(ts: datetime, release_date: date | None = None):
     """Helper to drive the async ``run`` from sync test code."""
-    return asyncio.get_event_loop().run_until_complete(
+    return asyncio.run(
         run(deploy_timestamp=ts, release_date=release_date)
     )
 
@@ -45,7 +43,7 @@ class TestDayOfWeek:
         assert result.status == "pass"
         assert result.risk_score_modifier == 0
 
-    def test_sunday_is_warning(self):
+    def test_sunday_is_boundary_pass(self):
         # Sunday 11:00 AM  →  day=+20, time=0  →  20 → "pass" (boundary)
         ts = datetime(2026, 3, 1, 11, 0, tzinfo=timezone.utc)
         result = _run(ts)
@@ -103,10 +101,11 @@ class TestTimeOfDay:
 
 class TestHoliday:
     def test_christmas_day(self):
-        # Christmas, Wed 10 AM → day=0, time=0, holiday=+20 → 20 → "pass"
+        # Christmas, Fri 10 AM → day=+30, time=0, holiday=+20 → 50 → "warning"
         ts = datetime(2026, 12, 25, 10, 0, tzinfo=timezone.utc)
         result = _run(ts)
-        assert result.risk_score_modifier >= 20
+        assert result.status == "warning"
+        assert result.risk_score_modifier == 50
         assert any("Christmas" in f for f in result.findings)
 
     def test_christmas_eve(self):
@@ -193,7 +192,7 @@ class TestCombined:
 
     def test_no_timestamp_uses_now(self):
         """When no timestamp is provided, the agent should still return a valid result."""
-        result = asyncio.get_event_loop().run_until_complete(run())
+        result = asyncio.run(run())
         assert result.agent_name == "Timing Agent"
         assert 0 <= result.risk_score_modifier <= 100
 

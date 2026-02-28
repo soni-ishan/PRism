@@ -24,6 +24,14 @@ from agents.shared.data_contract import AgentResult, VerdictReport
 
 logger = logging.getLogger("prism.orchestrator")
 
+
+def _parse_iso_timestamp(ts: str) -> datetime:
+    """Parse ISO-8601 timestamp, normalizing trailing 'Z' to '+00:00'."""
+    if ts.endswith(("Z", "z")):
+        ts = ts[:-1] + "+00:00"
+    return datetime.fromisoformat(ts)
+
+
 # ── Agent weight configuration (used by Verdict Agent, exposed here
 #    so the Orchestrator can attach metadata) ─────────────────────────
 
@@ -152,12 +160,30 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
     agent_results = await _import_and_run_agents(payload)
 
     # 2. Pass to Verdict Agent
-    from agents.verdict_agent import run as run_verdict
+    try:
+        from agents.verdict_agent import run as run_verdict
+    except (ImportError, AttributeError):
+        logger.warning("Verdict Agent unavailable — returning blocked fallback.")
+        return VerdictReport(
+            confidence_score=0,
+            decision="blocked",
+            risk_brief="Verdict Agent is not yet implemented.",
+            agent_results=agent_results,
+        )
 
-    verdict = await run_verdict(
-        agent_results=agent_results,
-        pr_payload=payload.model_dump(),
-    )
+    try:
+        verdict = await run_verdict(
+            agent_results=agent_results,
+            pr_payload=payload.model_dump(),
+        )
+    except Exception as exc:
+        logger.exception("Verdict Agent failed: %s", exc)
+        return VerdictReport(
+            confidence_score=0,
+            decision="blocked",
+            risk_brief="Verdict Agent encountered an internal error while generating a verdict.",
+            agent_results=agent_results,
+        )
 
     logger.info(
         "PRism verdict for %s PR #%d: score=%d decision=%s",
@@ -213,7 +239,7 @@ def create_kernel():
         async def analyze(self, timestamp: str = "") -> str:
             from agents.timing_agent import run as run_timing
 
-            ts = datetime.fromisoformat(timestamp) if timestamp else None
+            ts = _parse_iso_timestamp(timestamp) if timestamp else None
             result = await run_timing(deploy_timestamp=ts)
             return result.to_json()
 
@@ -300,7 +326,7 @@ def create_kernel():
                 repo=repo,
                 diff=diff,
                 changed_files=files,
-                timestamp=datetime.fromisoformat(timestamp) if timestamp else None,
+                timestamp=_parse_iso_timestamp(timestamp) if timestamp else None,
             )
             verdict = await orchestrate(payload)
             return verdict.to_json()

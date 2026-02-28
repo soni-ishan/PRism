@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -289,11 +289,13 @@ class TestSemanticKernel:
         from agents.orchestrator import create_kernel
 
         with patch.dict("sys.modules", {"semantic_kernel": None}):
-            # Force re-import to hit the ImportError path
-            # Actually, create_kernel catches ImportError internally
-            pass
+            kernel = create_kernel()
+        assert kernel is None
 
-        # If SK IS installed, it should return a Kernel
+    def test_create_kernel_with_sk_registers_plugins(self):
+        """If semantic-kernel is installed, create_kernel() returns a configured Kernel."""
+        from agents.orchestrator import create_kernel
+
         kernel = create_kernel()
         if kernel is not None:
             # Verify the plugins are registered
