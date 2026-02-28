@@ -10,8 +10,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
+from agents.orchestrator import AGENT_WEIGHTS
 from agents.shared.data_contract import AgentResult, VerdictReport
 from agents.verdict_agent import (
     _build_risk_brief,
@@ -24,12 +23,7 @@ from agents.verdict_agent import (
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-WEIGHTS = {
-    "Diff Analyst": 0.30,
-    "History Agent": 0.25,
-    "Coverage Agent": 0.25,
-    "Timing Agent": 0.20,
-}
+WEIGHTS = AGENT_WEIGHTS
 
 
 def _make(

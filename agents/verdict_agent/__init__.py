@@ -36,7 +36,11 @@ def _get_weights() -> dict[str, float]:
         from agents.orchestrator import AGENT_WEIGHTS
         return AGENT_WEIGHTS
     except ImportError:
-        logger.warning("Could not import AGENT_WEIGHTS — using equal weights.")
+        logger.warning(
+            "Could not import AGENT_WEIGHTS — falling back to default weight %s "
+            "for agents without an explicit weight.",
+            _DEFAULT_WEIGHT,
+        )
         return {}
 
 
@@ -54,7 +58,7 @@ def _compute_score(results: list[AgentResult], weights: dict[str, float]) -> int
         weighted_sum += r.risk_score_modifier * w
 
     score = 100.0 - weighted_sum
-    return max(0, min(100, round(score)))
+    return int(max(0.0, min(100.0, score)))
 
 
 def _decide(score: int, results: list[AgentResult]) -> str:
@@ -149,18 +153,25 @@ async def _llm_enhance_brief(
 ) -> str | None:
     """Attempt to produce an LLM-enriched risk brief via Azure OpenAI.
 
+    The *template_brief* is included in the prompt so the LLM can refine
+    the deterministic output rather than regenerating from scratch.
+
     Returns the enhanced text, or ``None`` if LLM is unavailable / fails.
     """
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
 
-    if not endpoint or not deployment:
+    if not endpoint or not deployment or not api_key:
         return None
 
     try:
         from openai import AsyncAzureOpenAI
+    except ModuleNotFoundError:
+        logger.warning("openai package not installed — LLM enhancement disabled.")
+        return None
 
+    try:
         client = AsyncAzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
@@ -176,15 +187,18 @@ async def _llm_enhance_brief(
                     "role": "system",
                     "content": (
                         "You are a deployment risk analyst for a CI/CD system called PRism. "
-                        "Summarize the following agent analysis results into a concise, "
-                        "executive-level risk brief in markdown. Group findings by agent, "
-                        "highlight the most critical issues first, and end with a clear "
-                        "recommendation (deploy or delay). Keep it under 400 words."
+                        "Refine the following template risk brief using the raw agent "
+                        "analysis results. Keep the markdown structure, group findings by "
+                        "agent, highlight the most critical issues first, and end with a "
+                        "clear recommendation (deploy or delay). Keep it under 400 words."
                     ),
                 },
                 {
                     "role": "user",
-                    "content": f"Agent analysis results:\n\n{agent_json}",
+                    "content": (
+                        f"Template brief:\n\n{template_brief}\n\n"
+                        f"Raw agent results:\n\n{agent_json}"
+                    ),
                 },
             ],
             temperature=0.3,
@@ -206,18 +220,25 @@ async def _llm_enhance_playbook(
 ) -> str | None:
     """Attempt to produce an LLM-enriched rollback playbook.
 
+    The *template_playbook* is included in the prompt so the LLM can
+    refine the deterministic output with context-aware guidance.
+
     Returns the enhanced text, or ``None`` if LLM is unavailable / fails.
     """
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
 
-    if not endpoint or not deployment:
+    if not endpoint or not deployment or not api_key:
         return None
 
     try:
         from openai import AsyncAzureOpenAI
+    except ModuleNotFoundError:
+        logger.warning("openai package not installed — LLM enhancement disabled.")
+        return None
 
+    try:
         client = AsyncAzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
@@ -233,16 +254,17 @@ async def _llm_enhance_playbook(
                 {
                     "role": "system",
                     "content": (
-                        "You are a deployment risk analyst. Generate a detailed, "
-                        "context-aware rollback playbook in markdown for a blocked PR. "
-                        "Include specific git commands, verification steps, and "
-                        "remediation guidance based on the flagged issues and changed files. "
-                        "Keep it under 500 words."
+                        "You are a deployment risk analyst. Refine the following "
+                        "template rollback playbook into a detailed, context-aware "
+                        "version for a blocked PR. Include specific git commands, "
+                        "verification steps, and remediation guidance based on the "
+                        "flagged issues and changed files. Keep it under 500 words."
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
+                        f"Template playbook:\n\n{template_playbook}\n\n"
                         f"PR #{pr_payload.get('pr_number', 'N/A')} "
                         f"in {pr_payload.get('repo', 'unknown/repo')}\n"
                         f"Changed files: {', '.join(changed_files)}\n\n"
