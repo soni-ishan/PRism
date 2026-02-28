@@ -14,11 +14,12 @@ from typing import Optional
 
 from agents.shared.data_contract import AgentResult
 
-# ── US Federal Holidays (month, day) ──────────────────────────────────
+# ── Major US Federal Holidays (month, day) ───────────────────────────
 # Fixed-date holidays.  Floating holidays are computed dynamically.
 
 _FIXED_HOLIDAYS: dict[str, tuple[int, int]] = {
     "New Year's Day": (1, 1),
+    "Juneteenth": (6, 19),
     "Independence Day": (7, 4),
     "Veterans Day": (11, 11),
     "Christmas Day": (12, 25),
@@ -142,9 +143,10 @@ async def run(
     if deploy_timestamp is None:
         deploy_timestamp = datetime.now(timezone.utc)
 
-    # Ensure timezone-aware
+    # Ensure timezone-aware and normalised to UTC
     if deploy_timestamp.tzinfo is None:
         deploy_timestamp = deploy_timestamp.replace(tzinfo=timezone.utc)
+    deploy_timestamp = deploy_timestamp.astimezone(timezone.utc)
 
     findings: list[str] = []
     total_modifier = 0
