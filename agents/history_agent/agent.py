@@ -76,8 +76,13 @@ class HistoryAgent:
                 file_risk = min(50, count * 10)  # Max 50 points per file
                 risk_score += file_risk
                 
-                # Add specific incident details
-                for incident in incident_list[-2:]:  # Last 2 incidents
+                # Add specific incident details (most recent 2 by timestamp)
+                recent_incidents = sorted(
+                    incident_list,
+                    key=self._incident_timestamp_sort_key,
+                    reverse=True,
+                )
+                for incident in recent_incidents[:2]:
                     detail = f"  └─ {incident['timestamp'][:10]}: {incident['title']} ({incident['severity']})"
                     findings.append(detail)
         
@@ -108,15 +113,71 @@ class HistoryAgent:
             Map of file_path -> list of incidents
         """
         file_incident_map = {f: [] for f in pr_files}
+
+        normalized_pr_files = {
+            pr_file: self._normalize_file_key(pr_file) for pr_file in pr_files
+        }
         
         for incident in self.incidents:
             incident_files = incident.get("files_involved", [])
+            normalized_incident_files = [
+                self._normalize_file_key(path)
+                for path in incident_files
+                if isinstance(path, str)
+            ]
+
             for pr_file in pr_files:
-                # Exact match or substring match (e.g., "payment_service" matches "payment_service.py")
-                if pr_file in incident_files or pr_file.split('.')[0] in str(incident_files):
+                pr_key = normalized_pr_files[pr_file]
+                if any(self._file_keys_match(pr_key, incident_key) for incident_key in normalized_incident_files):
                     file_incident_map[pr_file].append(incident)
         
         return file_incident_map
+
+    def _normalize_file_key(self, file_path: str) -> tuple[str, str, str]:
+        """
+        Build a normalized file identity tuple:
+          (normalized_full_path, basename, stem)
+
+        Matching on this tuple avoids substring false positives like:
+        user.py matching superuser.py.
+        """
+        normalized = str(file_path or "").strip().replace("\\", "/").lower()
+        normalized = normalized.lstrip("./")
+
+        basename = normalized.rsplit("/", 1)[-1] if normalized else ""
+        stem = basename.rsplit(".", 1)[0] if "." in basename else basename
+
+        return normalized, basename, stem
+
+    def _file_keys_match(
+        self,
+        pr_file_key: tuple[str, str, str],
+        incident_file_key: tuple[str, str, str],
+    ) -> bool:
+        """Match by exact normalized path, basename, or stem."""
+        pr_path, pr_basename, pr_stem = pr_file_key
+        incident_path, incident_basename, incident_stem = incident_file_key
+
+        return (
+            pr_path == incident_path
+            or pr_basename == incident_basename
+            or pr_stem == incident_stem
+        )
+
+    def _incident_timestamp_sort_key(self, incident: Dict[str, Any]) -> datetime:
+        """Parse incident timestamp for deterministic recent-first sorting."""
+        raw_timestamp = str(incident.get("timestamp", "")).strip()
+        if not raw_timestamp:
+            return datetime.min.replace(tzinfo=timezone.utc)
+
+        normalized_timestamp = raw_timestamp.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized_timestamp)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError:
+            return datetime.min.replace(tzinfo=timezone.utc)
     
     def _check_deployment_frequency(self, pr_files: List[str]) -> tuple:
         """
