@@ -1,0 +1,122 @@
+{
+  "incidents": [
+    {
+      "id": "INC-2026-0001",
+      "timestamp": "2026-02-24T14:30:00Z",
+      "title": "Payment service timeout spike",
+      "severity": "high",
+      "status": "resolved",
+      "files_involved": ["payment_service.py"],
+      "error_message": "ConnectionPoolError: max retries exceeded",
+      "duration_minutes": 45,
+      "affected_services": ["payments-api", "checkout-service"],
+      "root_cause": "Retry handler removed in PR #892, causing immediate failures on transient errors"
+    },
+    {
+      "id": "INC-2026-0002",
+      "timestamp": "2026-02-22T09:15:00Z",
+      "title": "Database migration deadlock",
+      "severity": "critical",
+      "status": "resolved",
+      "files_involved": ["database.py", "models/user.py"],
+      "error_message": "Deadlock detected between migration and active queries",
+      "duration_minutes": 120,
+      "affected_services": ["auth-service", "user-api"],
+      "root_cause": "Schema change in models/user.py without proper locking strategy"
+    },
+    {
+      "id": "INC-2026-0003",
+      "timestamp": "2026-02-20T16:45:00Z",
+      "title": "Memory leak in payment retry loop",
+      "severity": "high",
+      "status": "resolved",
+      "files_involved": ["payment_service.py"],
+      "error_message": "Memory usage climbed from 512MB to 2.8GB over 30 minutes",
+      "duration_minutes": 90,
+      "affected_services": ["payments-api"],
+      "root_cause": "Retry handler not releasing connection objects properly"
+    },
+    {
+      "id": "INC-2026-0004",
+      "timestamp": "2026-02-18T11:20:00Z",
+      "title": "Payment processing failures during peak traffic",
+      "severity": "critical",
+      "status": "resolved",
+      "files_involved": ["payment_service.py", "retry_handler.py"],
+      "error_message": "HTTP 503 on 40% of payment endpoints",
+      "duration_minutes": 65,
+      "affected_services": ["payments-api", "checkout-service"],
+      "root_cause": "Insufficient retry logic for transient network failures"
+    },
+    {
+      "id": "INC-2026-0005",
+      "timestamp": "2026-02-15T13:00:00Z",
+      "title": "Authentication bypass via hardcoded token",
+      "severity": "critical",
+      "status": "resolved",
+      "files_involved": ["auth_service.py"],
+      "error_message": "Hardcoded API key found in code, exposed in logs",
+      "duration_minutes": 180,
+      "affected_services": ["auth-service", "api-gateway"],
+      "root_cause": "Developer left debug token in production code"
+    },
+    {
+      "id": "INC-2026-0006",
+      "timestamp": "2026-02-12T18:30:00Z",
+      "title": "Silent error handling swallows critical failures",
+      "severity": "high",
+      "status": "resolved",
+      "files_involved": ["error_handler.py", "payment_service.py"],
+      "error_message": "Exceptions caught but not logged, causing blind spot in monitoring",
+      "duration_minutes": 240,
+      "affected_services": ["payments-api"],
+      "root_cause": "Broad except clause without logging in payment service"
+    },
+    {
+      "id": "INC-2026-0007",
+      "timestamp": "2026-02-10T10:00:00Z",
+      "title": "Cache invalidation failure",
+      "severity": "medium",
+      "status": "resolved",
+      "files_involved": ["cache_manager.py"],
+      "error_message": "Stale data served for 30 minutes after update",
+      "duration_minutes": 30,
+      "affected_services": ["api-gateway"],
+      "root_cause": "Cache TTL logic removed during refactor"
+    },
+    {
+      "id": "INC-2026-0008",
+      "timestamp": "2026-02-05T15:45:00Z",
+      "title": "Deployment during peak traffic Friday evening",
+      "severity": "medium",
+      "status": "resolved",
+      "files_involved": ["checkout_flow.py"],
+      "error_message": "5% error rate increase during deploy",
+      "duration_minutes": 20,
+      "affected_services": ["checkout-service"],
+      "root_cause": "Deployed at 4:50 PM on Friday without proper validation"
+    }
+  ],
+  "deployment_events": [
+    {
+      "id": "DEPLOY-2026-0001",
+      "timestamp": "2026-02-24T14:25:00Z",
+      "files_changed": ["payment_service.py"],
+      "pr_number": 892,
+      "engineer": "alice@company.com",
+      "production": true,
+      "rollback_required": true,
+      "rollback_time_minutes": 5
+    },
+    {
+      "id": "DEPLOY-2026-0002",
+      "timestamp": "2026-02-20T16:40:00Z",
+      "files_changed": ["payment_service.py"],
+      "pr_number": 875,
+      "engineer": "bob@company.com",
+      "production": true,
+      "rollback_required": true,
+      "rollback_time_minutes": 15
+    }
+  ]
+}
