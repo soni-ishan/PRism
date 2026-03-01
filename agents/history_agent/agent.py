@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from agents.shared.data_contract import AgentResult
+
 class HistoryAgent:
     """
     Correlates PR changes with past incidents to assess deployment risk.
@@ -178,6 +180,13 @@ def main():
     
     # Output as JSON (stdout)
     print(json.dumps(result, indent=2))
+
+
+async def run(changed_files: list[str]) -> AgentResult:
+    """PRism agent interface entrypoint for History Agent."""
+    agent = HistoryAgent()
+    result = agent.analyze_pr(changed_files)
+    return AgentResult.model_validate(result)
 
 
 if __name__ == "__main__":
