@@ -26,6 +26,7 @@ from azure.search.documents.indexes.models import (
     SearchIndex,
     SimpleField,
     SearchableField,
+    SearchField,
     SearchFieldDataType,
 )
 
@@ -37,7 +38,7 @@ class AzureMCPServer:
     MCP server that queries Azure Monitor Logs and Azure AI Search for incident data.
     """
 
-    def __init__(self, search_index_name: str = "incidents"):
+    def __init__(self, search_index_name: str = "incidents", recreate_index: bool = False):
         self.subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID")
         self.tenant_id = os.getenv("AZURE_TENANT_ID")
         self.client_id = os.getenv("AZURE_CLIENT_ID")
@@ -65,7 +66,7 @@ class AzureMCPServer:
             endpoint=self.search_endpoint,
             credential=self.search_credential,
         )
-        self._ensure_incidents_index()
+        self._ensure_incidents_index(recreate=recreate_index)
 
         self.search_client = SearchClient(
             endpoint=self.search_endpoint,
@@ -93,18 +94,30 @@ class AzureMCPServer:
                 + "\nCreate a .env file with these variables."
             )
 
-    def _ensure_incidents_index(self) -> None:
+    def delete_index(self) -> None:
+        """Delete the search index (useful for schema updates)."""
+        try:
+            self.index_client.delete_index(self.search_index_name)
+            print(f"[AzureMCPServer] 🗑️ Deleted index '{self.search_index_name}'", flush=True)
+        except Exception as e:
+            print(f"[AzureMCPServer] ⚠️ Could not delete index: {e}", flush=True)
+
+    def _ensure_incidents_index(self, recreate: bool = False) -> None:
         """
         Create the Azure AI Search index if it doesn't exist.
-        This fixes: "The index 'incidents' was not found."
+        If recreate=True, deletes and recreates the index (useful for schema updates).
         """
         index_name = self.search_index_name
-        try:
-            self.index_client.get_index(index_name)
-            print(f"[AzureMCPServer] ✅ Search index '{index_name}' exists", flush=True)
-            return
-        except Exception:
-            pass
+        
+        if recreate:
+            self.delete_index()
+        else:
+            try:
+                self.index_client.get_index(index_name)
+                print(f"[AzureMCPServer] ✅ Search index '{index_name}' exists", flush=True)
+                return
+            except Exception:
+                pass
 
         print(f"[AzureMCPServer] ℹ️ Creating search index '{index_name}'...", flush=True)
 
@@ -127,15 +140,17 @@ class AzureMCPServer:
                 ),
                 SearchableField(name="root_cause", type=SearchFieldDataType.String),
                 SearchableField(name="error_message", type=SearchFieldDataType.String),
-                SimpleField(
+                SearchField(
                     name="files_involved",
                     type=SearchFieldDataType.Collection(SearchFieldDataType.String),
+                    searchable=True,
                     filterable=True,
                     facetable=True,
                 ),
-                SimpleField(
+                SearchField(
                     name="affected_services",
                     type=SearchFieldDataType.Collection(SearchFieldDataType.String),
+                    searchable=True,
                     filterable=True,
                     facetable=True,
                 ),
@@ -306,6 +321,9 @@ class AzureMCPServer:
         """
         Upload sample incident data to Azure AI Search.
         Run once (or any time to refresh). Documents are keyed by 'id', so re-upload updates.
+        
+        NOTE: Use full file paths in production (e.g., "src/services/payment_service.py")
+        to ensure strict matching works correctly. Files in different locations are different!
         """
         sample_incidents = [
             {
@@ -313,7 +331,7 @@ class AzureMCPServer:
                 "timestamp": "2026-02-24T14:30:00Z",
                 "title": "Payment service timeout spike",
                 "severity": "high",
-                "files_involved": ["payment_service.py"],
+                "files_involved": ["src/services/payment_service.py"],
                 "error_message": "ConnectionPoolError: max retries exceeded",
                 "root_cause": "Retry handler removed in PR #892",
                 "affected_services": ["payments-api", "checkout-service"],
@@ -324,7 +342,7 @@ class AzureMCPServer:
                 "timestamp": "2026-02-22T09:15:00Z",
                 "title": "Database migration deadlock",
                 "severity": "critical",
-                "files_involved": ["database.py", "models/user.py"],
+                "files_involved": ["src/db/database.py", "src/models/user.py"],
                 "error_message": "Deadlock detected between migration and active queries",
                 "root_cause": "Schema change without proper locking",
                 "affected_services": ["auth-service", "user-api"],
@@ -335,7 +353,7 @@ class AzureMCPServer:
                 "timestamp": "2026-02-20T16:45:00Z",
                 "title": "Memory leak in payment retry loop",
                 "severity": "high",
-                "files_involved": ["payment_service.py"],
+                "files_involved": ["src/services/payment_service.py"],
                 "error_message": "Memory usage climbed from 512MB to 2.8GB",
                 "root_cause": "Retry handler not releasing connections",
                 "affected_services": ["payments-api"],
@@ -346,7 +364,7 @@ class AzureMCPServer:
                 "timestamp": "2026-02-18T11:20:00Z",
                 "title": "Payment processing failures during peak traffic",
                 "severity": "critical",
-                "files_involved": ["payment_service.py", "retry_handler.py"],
+                "files_involved": ["src/services/payment_service.py", "src/utils/retry_handler.py"],
                 "error_message": "HTTP 503 on 40% of payment endpoints",
                 "root_cause": "Insufficient retry logic",
                 "affected_services": ["payments-api", "checkout-service"],
@@ -357,11 +375,22 @@ class AzureMCPServer:
                 "timestamp": "2026-02-15T13:00:00Z",
                 "title": "Authentication bypass via hardcoded token",
                 "severity": "critical",
-                "files_involved": ["auth_service.py"],
+                "files_involved": ["src/auth/auth_service.py"],
                 "error_message": "Hardcoded API key exposed in logs",
                 "root_cause": "Debug token left in production",
                 "affected_services": ["auth-service", "api-gateway"],
                 "duration_minutes": 180,
+            },
+            {
+                "id": "INC-2026-0006",
+                "timestamp": "2026-02-12T18:30:00Z",
+                "title": "Payment gateway connection timeout",
+                "severity": "high",
+                "files_involved": ["src/api/payments.py", "src/clients/gateway_client.py"],
+                "error_message": "Timeout connecting to payment gateway after 30s",
+                "root_cause": "Payment gateway client timeout too aggressive",
+                "affected_services": ["payments-api"],
+                "duration_minutes": 75,
             },
         ]
 

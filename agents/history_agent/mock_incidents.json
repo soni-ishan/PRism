@@ -63,6 +63,18 @@
     {
       "id": "INC-2026-0006",
       "timestamp": "2026-02-12T18:30:00Z",
+      "title": "Payment gateway connection timeout",
+      "severity": "high",
+      "status": "resolved",
+      "files_involved": ["payments.py", "gateway_client.py"],
+      "error_message": "Timeout connecting to payment gateway after 30s",
+      "duration_minutes": 75,
+      "affected_services": ["payments-api"],
+      "root_cause": "Payment gateway client timeout too aggressive"
+    },
+    {
+      "id": "INC-2026-0007",
+      "timestamp": "2026-02-12T18:30:00Z",
       "title": "Silent error handling swallows critical failures",
       "severity": "high",
       "status": "resolved",
@@ -73,7 +85,7 @@
       "root_cause": "Broad except clause without logging in payment service"
     },
     {
-      "id": "INC-2026-0007",
+      "id": "INC-2026-0008",
       "timestamp": "2026-02-10T10:00:00Z",
       "title": "Cache invalidation failure",
       "severity": "medium",
@@ -85,7 +97,7 @@
       "root_cause": "Cache TTL logic removed during refactor"
     },
     {
-      "id": "INC-2026-0008",
+      "id": "INC-2026-0009",
       "timestamp": "2026-02-05T15:45:00Z",
       "title": "Deployment during peak traffic Friday evening",
       "severity": "medium",

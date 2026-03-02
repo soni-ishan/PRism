@@ -1,19 +1,11 @@
 # Azure MCP Server Dependencies
-azure-identity==1.14.0
 azure-monitor-query==1.2.0
 azure-search-documents==11.4.0
-azure-core==1.28.0
-python-dotenv==1.0.0
-azure-identity==1.14.0
-azure-monitor-query==1.2.0
-azure-search-documents==11.4.0
-azure-core==1.28.0
-python-dotenv==1.0.0
 pydantic>=2.0
 semantic-kernel>=1.0
 azure-identity
 azure-ai-projects
-python-dotenv
+azure-identity==1.14.0
 aiohttp
 httpx
 fastapi
