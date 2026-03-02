@@ -1,8 +1,7 @@
-from agents.diff_analyst.diff_agent import analyze_diff
-sample_diff = """
-- const API_KEY = "12345"
-+ const API_KEY = "12345"
-"""
+import os
+from agents.diff_analyst.diff_agent import run_from_pr
 
-result = analyze_diff(sample_diff)
-print(result)
+# put a real PR number here
+PR_NUMBER = 1
+
+print(run_from_pr(PR_NUMBER).to_json())
