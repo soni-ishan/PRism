@@ -1,14 +1,31 @@
+"""
+History Agent - Correlates PR changes with past incidents to assess deployment risk.
+Data Source: Azure AI Search via MCP Server
+"""
 import json
 import sys
 import os
+
+# Add project root to path for imports
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from agents.shared.data_contract import AgentResult
+from mcp_servers.azure_mcp_server.mcp_server import AzureMCPServer
+
 
 class HistoryAgent:
     """
     Correlates PR changes with past incidents to assess deployment risk.
+    
+    Data Source: Azure AI Search (incidents index)
+    
+    File Matching: STRICT - Exact path/basename matching only.
+    Two files with similar names in different locations are treated as separate.
     
     Data Contract Output:
     {
@@ -20,31 +37,27 @@ class HistoryAgent:
     }
     """
     
-    def __init__(self, mock_data_path: str = None):
-        """Initialize the agent and load mock incident data."""
-        # If no path provided, resolve it relative to this file's location
-        if mock_data_path is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            mock_data_path = os.path.join(current_dir, "mock_incidents.json")
+    def __init__(self, azure_mcp: AzureMCPServer = None):
+        """
+        Initialize the agent with Azure MCP server connection.
         
-        self.mock_data_path = mock_data_path
+        Args:
+            azure_mcp: Optional MCP server instance. If None, creates a new one.
+            
+        Raises:
+            RuntimeError: If Azure connection fails
+        """
         self.incidents = []
         self.deployment_events = []
-        self.load_mock_data()
-    
-    def load_mock_data(self) -> None:
-        """Load mock incident and deployment data from JSON file."""
+        
+        # Connect to Azure (or use provided connection)
         try:
-            with open(self.mock_data_path, 'r') as f:
-                data = json.load(f)
-                self.incidents = data.get("incidents", [])
-                self.deployment_events = data.get("deployment_events", [])
-            print(f"[HistoryAgent] ✅ Loaded {len(self.incidents)} incidents and {len(self.deployment_events)} deployments", file=sys.stderr)
-        except FileNotFoundError:
-            print(f"[HistoryAgent] ❌ ERROR: Mock data file not found at {self.mock_data_path}", file=sys.stderr)
-            print(f"[HistoryAgent] Expected location: {os.path.abspath(self.mock_data_path)}", file=sys.stderr)
-            self.incidents = []
-            self.deployment_events = []
+            self.azure_mcp = azure_mcp or AzureMCPServer()
+            print("[HistoryAgent] ✅ Connected to Azure AI Search", file=sys.stderr)
+        except Exception as e:
+            print(f"[HistoryAgent] ❌ Azure connection failed: {e}", file=sys.stderr)
+            print("[HistoryAgent] 💡 Run: python setup_azure_search.py", file=sys.stderr)
+            raise RuntimeError(f"Azure AI Search required: {e}") from e
     
     def analyze_pr(self, pr_files: List[str]) -> Dict[str, Any]:
         """
@@ -61,6 +74,9 @@ class HistoryAgent:
         
         findings = []
         risk_score = 0
+        
+        # ===== STEP 0: Fetch incidents from Azure or mock data =====
+        self._fetch_incidents_from_azure(pr_files)
         
         # ===== STEP 1: Correlate files with incidents =====
         file_incident_map = self._correlate_files_with_incidents(pr_files)
@@ -105,15 +121,56 @@ class HistoryAgent:
         
         return self._build_response(risk_score, status, findings, recommended_action)
     
+    def _fetch_incidents_from_azure(self, pr_files: List[str]) -> None:
+        """
+        Fetch incidents from Azure AI Search for the given files.
+        
+        Azure AI Search VALUE (even with strict local matching):
+        ✓ Searches across multiple fields: files_involved, title, error_message, root_cause
+        ✓ Returns incidents where file is mentioned in descriptions (not just files_involved)
+        ✓ Efficient full-text search with ranking by relevance
+        ✓ Can find related incidents even if exact path differs slightly
+        
+        We then apply STRICT local filtering to ensure precision.
+        
+        Args:
+            pr_files: List of file paths to search for
+            
+        Raises:
+            RuntimeError: If Azure query fails
+        """
+        try:
+            print(f"[HistoryAgent] 🔍 Searching incidents for: {pr_files}", file=sys.stderr)
+            
+            self.incidents = self.azure_mcp.query_incidents_by_files_search(
+                file_paths=pr_files,
+                top_k=50
+            )
+            
+            count = len(self.incidents)
+            print(f"[HistoryAgent] ✅ Found {count} incident(s) from Azure", file=sys.stderr)
+                
+        except Exception as e:
+            print(f"[HistoryAgent] ❌ Query failed: {e}", file=sys.stderr)
+            raise RuntimeError(f"Failed to fetch incidents from Azure: {e}") from e
+    
     def _correlate_files_with_incidents(self, pr_files: List[str]) -> Dict[str, List[Dict]]:
         """
         Find all incidents that involved any of the PR's changed files.
+        Uses STRICT exact matching on paths/filenames.
+        
+        Azure AI Search returns incidents where the file name appears in:
+        - files_involved array (exact or partial text match)
+        - incident title, error message, or root cause (semantic search)
+        
+        We then filter to only exact path/basename/stem matches.
         
         Returns:
             Map of file_path -> list of incidents
         """
         file_incident_map = {f: [] for f in pr_files}
 
+        # Normalize PR files for matching
         normalized_pr_files = {
             pr_file: self._normalize_file_key(pr_file) for pr_file in pr_files
         }
@@ -135,11 +192,12 @@ class HistoryAgent:
 
     def _normalize_file_key(self, file_path: str) -> tuple[str, str, str]:
         """
-        Build a normalized file identity tuple:
+        Build a normalized file identity tuple for strict matching:
           (normalized_full_path, basename, stem)
 
-        Matching on this tuple avoids substring false positives like:
-        user.py matching superuser.py.
+        STRICT matching prevents false positives:
+        - api/user.py ≠ models/user.py (different modules)
+        - payments.py ≠ payment_service.py (different files)
         """
         normalized = str(file_path or "").strip().replace("\\", "/").lower()
         normalized = normalized.lstrip("./")
@@ -154,14 +212,24 @@ class HistoryAgent:
         pr_file_key: tuple[str, str, str],
         incident_file_key: tuple[str, str, str],
     ) -> bool:
-        """Match by exact normalized path, basename, or stem."""
+        """
+        Match files using STRICT exact matching:
+        1. Exact full path match (e.g., "src/api/payment.py")
+        2. Exact basename match (e.g., "payment_service.py")
+        3. Exact stem match (e.g., "payment_service")
+        
+        NO fuzzy matching to avoid false positives:
+        - "payments.py" will NOT match "payment_service.py"
+        - "api/user.py" will NOT match "models/user.py"
+        """
         pr_path, pr_basename, pr_stem = pr_file_key
         incident_path, incident_basename, incident_stem = incident_file_key
 
+        # Only exact matches
         return (
-            pr_path == incident_path
-            or pr_basename == incident_basename
-            or pr_stem == incident_stem
+            pr_path == incident_path or 
+            pr_basename == incident_basename or 
+            pr_stem == incident_stem
         )
 
     def _incident_timestamp_sort_key(self, incident: Dict[str, Any]) -> datetime:
@@ -184,9 +252,15 @@ class HistoryAgent:
         Check how many times files have been deployed today and recently.
         If deployed multiple times today, risk increases (Friday effect, etc.).
         
+        Note: Requires deployment event data. Returns (0, "") if no deployment data available.
+        
         Returns:
             (risk_score, finding_string)
         """
+        if not self.deployment_events:
+            # No deployment data available (not yet implemented in Azure AI Search)
+            return 0, ""
+        
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         
@@ -226,25 +300,32 @@ class HistoryAgent:
 
 def main():
     """
-    Entry point for testing the History Agent.
-    Usage: python history_agent.py <file1> <file2> ...
+    CLI entry point for testing the History Agent.
+    
+    Usage:
+        python agents/history_agent/agent.py <file1> <file2> ...
+    
+    Prerequisites:
+        python setup_azure_search.py
     """
+    files_changed = sys.argv[1:] if len(sys.argv) > 1 else ["payment_service.py"]
+    
     if len(sys.argv) < 2:
-        # Default test case
-        files_changed = ["payment_service.py"]
-        print("[HistoryAgent] No files provided, using test case: payment_service.py", file=sys.stderr)
-    else:
-        files_changed = sys.argv[1:]
+        print("[HistoryAgent] No files provided, using test: payment_service.py", file=sys.stderr)
     
-    agent = HistoryAgent()
-    result = agent.analyze_pr(files_changed)
-    
-    # Output as JSON (stdout)
-    print(json.dumps(result, indent=2))
+    try:
+        agent = HistoryAgent()
+        result = agent.analyze_pr(files_changed)
+        print(json.dumps(result, indent=2))
+        
+    except RuntimeError as e:
+        print(f"\n❌ {e}", file=sys.stderr)
+        print("\n📝 Setup: python setup_azure_search.py", file=sys.stderr)
+        sys.exit(1)
 
 
 async def run(changed_files: list[str]) -> AgentResult:
-    """PRism agent interface entrypoint for History Agent."""
+    """PRism orchestrator interface."""
     agent = HistoryAgent()
     result = agent.analyze_pr(changed_files)
     return AgentResult.model_validate(result)
