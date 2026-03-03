@@ -300,13 +300,17 @@ async def check_content_safety(text: str) -> dict[str, Any]:
         return {"safe": True, "categories": {}, "blocked_categories": []}
 
     try:
+        import asyncio
+
         client = ContentSafetyClient(
             endpoint=cs_endpoint,
             credential=AzureKeyCredential(cs_key),
         )
 
         request = AnalyzeTextOptions(text=text)
-        response = client.analyze_text(request)
+        # Offload synchronous SDK call to a thread so we don't block
+        # the event loop (this coroutine is called from FastAPI).
+        response = await asyncio.to_thread(client.analyze_text, request)
 
         categories: dict[str, int] = {}
         blocked: list[str] = []
@@ -326,8 +330,8 @@ async def check_content_safety(text: str) -> dict[str, Any]:
         }
 
     except Exception as exc:
-        logger.warning("Content Safety call failed — treating as safe: %s", exc)
-        return {"safe": True, "categories": {}, "blocked_categories": []}
+        logger.warning("Content Safety call failed — failing closed: %s", exc)
+        return {"safe": False, "categories": {}, "blocked_categories": [], "error": str(exc)}
 
 
 # ── Policy Guardrails ─────────────────────────────────────────────────
@@ -493,18 +497,16 @@ async def evaluate_quality(
 
     missing = [name for name in agent_names if name.lower() not in brief_lower]
 
-    # Attempt Foundry evaluation API if client available
+    # Attempt Foundry evaluation API if client available.
+    # Currently, only heuristic evaluation is implemented; we keep
+    # evaluation_method="heuristic" until a real Foundry API call succeeds.
     evaluation_method = "heuristic"
     client = get_foundry_client()
     if client is not None:
-        try:
-            # Foundry evaluation API integration point.
-            # When the API stabilises, replace heuristic with:
-            #   result = client.evaluation.evaluate(...)
-            evaluation_method = "foundry"
-            logger.debug("Foundry client available — evaluation method upgraded.")
-        except Exception as exc:
-            logger.debug("Foundry evaluation API unavailable: %s", exc)
+        logger.debug(
+            "Foundry client available, but heuristic evaluation is still in use; "
+            "Foundry evaluation API not yet integrated."
+        )
 
     result = {
         "groundedness_score": round(groundedness, 3),
