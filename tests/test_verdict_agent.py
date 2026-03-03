@@ -260,16 +260,7 @@ class TestLLMFallback:
         assert "PRism Risk Brief" in verdict.risk_brief
         assert "Rollback Playbook" in verdict.rollback_playbook
 
-    @patch.dict(
-        "os.environ",
-        {
-            "AZURE_OPENAI_ENDPOINT": "https://example.openai.azure.com",
-            "AZURE_OPENAI_DEPLOYMENT": "gpt-4o",
-            "AZURE_OPENAI_API_KEY": "test-key",
-        },
-    )
-    @patch("openai.AsyncAzureOpenAI")
-    def test_llm_enhance_brief_passes_template_in_prompt(self, mock_cls):
+    def test_llm_enhance_brief_passes_template_in_prompt(self):
         """_llm_enhance_brief must include the template brief in the user message."""
         from agents.verdict_agent import _llm_enhance_brief, _build_risk_brief
 
@@ -277,12 +268,18 @@ class TestLLMFallback:
         template = _build_risk_brief(results, 90, "greenlight")
 
         mock_client = AsyncMock()
-        mock_cls.return_value = mock_client
         mock_client.chat.completions.create.return_value.choices[0].message.content = (
             "LLM-enhanced brief"
         )
 
-        result = _run(_llm_enhance_brief(results, template))
+        with patch(
+            "foundry.deployment_config.get_instrumented_openai_client",
+            return_value=mock_client,
+        ), patch.dict(
+            "os.environ",
+            {"AZURE_OPENAI_DEPLOYMENT": "gpt-4o"},
+        ):
+            result = _run(_llm_enhance_brief(results, template))
 
         assert result == "LLM-enhanced brief"
         call_kwargs = mock_client.chat.completions.create.call_args
