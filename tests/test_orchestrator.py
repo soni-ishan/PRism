@@ -9,7 +9,6 @@ be tested in isolation.
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -328,8 +327,8 @@ _diff_ready = pytest.mark.skipif(
     reason="Diff Analyst agent not yet implemented",
 )
 _history_ready = pytest.mark.skipif(
-    not _agent_is_ready("agents.history_agent") or not os.getenv("AZURE_SEARCH_ENDPOINT"),
-    reason="History Agent not ready or Azure credentials missing",
+    not _agent_is_ready("agents.history_agent"),
+    reason="History Agent not yet implemented",
 )
 _coverage_ready = pytest.mark.skipif(
     not _agent_is_ready("agents.coverage_agent"),
