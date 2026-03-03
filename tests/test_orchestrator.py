@@ -55,7 +55,7 @@ MOCK_VERDICT = VerdictReport(
 
 def _run(coro):
     """Run an async coroutine from sync test code."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── Fallback tests ───────────────────────────────────────────────────

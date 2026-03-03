@@ -155,28 +155,44 @@ async def _llm_enhance_brief(
 
     The *template_brief* is included in the prompt so the LLM can refine
     the deterministic output rather than regenerating from scratch.
+    Uses the Foundry instrumented client when available.
 
     Returns the enhanced text, or ``None`` if LLM is unavailable / fails.
     """
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    try:
+        from foundry.deployment_config import get_instrumented_openai_client
+        client = get_instrumented_openai_client()
+    except ImportError:
+        client = None
 
-    if not endpoint or not deployment or not api_key:
-        return None
+    if client is None:
+        # Fallback: try direct construction from env vars
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+
+        if not endpoint or not deployment or not api_key:
+            return None
+
+        try:
+            from openai import AsyncAzureOpenAI
+        except ModuleNotFoundError:
+            logger.warning("openai package not installed — LLM enhancement disabled.")
+            return None
+
+        try:
+            client = AsyncAzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version="2024-12-01-preview",
+            )
+        except Exception as exc:
+            logger.warning("Failed to create OpenAI client: %s", exc)
+            return None
+
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
     try:
-        from openai import AsyncAzureOpenAI
-    except ModuleNotFoundError:
-        logger.warning("openai package not installed — LLM enhancement disabled.")
-        return None
-
-    try:
-        client = AsyncAzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=api_key,
-            api_version="2024-12-01-preview",
-        )
 
         agent_json = "\n\n".join(r.to_json() for r in results)
 
@@ -222,28 +238,44 @@ async def _llm_enhance_playbook(
 
     The *template_playbook* is included in the prompt so the LLM can
     refine the deterministic output with context-aware guidance.
+    Uses the Foundry instrumented client when available.
 
     Returns the enhanced text, or ``None`` if LLM is unavailable / fails.
     """
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    try:
+        from foundry.deployment_config import get_instrumented_openai_client
+        client = get_instrumented_openai_client()
+    except ImportError:
+        client = None
 
-    if not endpoint or not deployment or not api_key:
-        return None
+    if client is None:
+        # Fallback: try direct construction from env vars
+        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+
+        if not endpoint or not deployment or not api_key:
+            return None
+
+        try:
+            from openai import AsyncAzureOpenAI
+        except ModuleNotFoundError:
+            logger.warning("openai package not installed — LLM enhancement disabled.")
+            return None
+
+        try:
+            client = AsyncAzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version="2024-12-01-preview",
+            )
+        except Exception as exc:
+            logger.warning("Failed to create OpenAI client: %s", exc)
+            return None
+
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
     try:
-        from openai import AsyncAzureOpenAI
-    except ModuleNotFoundError:
-        logger.warning("openai package not installed — LLM enhancement disabled.")
-        return None
-
-    try:
-        client = AsyncAzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=api_key,
-            api_version="2024-12-01-preview",
-        )
 
         agent_json = "\n\n".join(r.to_json() for r in results)
         changed_files = pr_payload.get("changed_files", [])
@@ -316,6 +348,20 @@ async def run(
     llm_brief = await _llm_enhance_brief(agent_results, risk_brief)
     if llm_brief:
         risk_brief = llm_brief
+
+    # 2b. Content safety post-check on risk brief
+    try:
+        from foundry.deployment_config import check_content_safety
+        safety_result = await check_content_safety(risk_brief)
+        if not safety_result.get("safe", True):
+            logger.warning(
+                "Content safety flagged risk brief — blocked categories: %s",
+                safety_result.get("blocked_categories", []),
+            )
+            # Fall back to the deterministic template
+            risk_brief = _build_risk_brief(agent_results, score, decision)
+    except ImportError:
+        pass  # Foundry module not available — skip
 
     # 3. Rollback playbook (only when blocked)
     rollback_playbook: str | None = None
