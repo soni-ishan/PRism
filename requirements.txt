@@ -10,6 +10,7 @@ aiohttp
 httpx
 fastapi
 uvicorn
+azure-functions
 # Foundry governance (Step 4)
 openai
 opentelemetry-sdk

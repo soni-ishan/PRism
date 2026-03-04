@@ -15,15 +15,22 @@ Deployed as an Azure Function or called directly.
 import json
 import os
 import logging
-from datetime import timedelta
+import argparse
+import hashlib
+import asyncio
+import re
+from datetime import timedelta, datetime, timezone
 from typing import Any
 
 from azure.identity import DefaultAzureCredential
+from azure.core.credentials import AzureKeyCredential
 from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.search.documents import SearchClient
 from openai import AsyncAzureOpenAI
 
 logger = logging.getLogger("prism.ingest")
+
+INDEX_NAME = "incidents"
 
 
 # ── Configuration ────────────────────────────────────────────
@@ -64,8 +71,8 @@ async def extract_files(stacktrace: str, error_message: str = "") -> list[str]:
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
 
     if not endpoint or not deployment:
-        logger.warning("Azure OpenAI not configured — cannot extract files")
-        return []
+        logger.info("Azure OpenAI not configured — using regex-based file extraction")
+        return _extract_files_from_text(stacktrace, error_message)
 
     if not stacktrace and not error_message:
         return []
@@ -104,8 +111,53 @@ async def extract_files(stacktrace: str, error_message: str = "") -> list[str]:
         return cleaned
 
     except Exception as exc:
-        logger.warning("LLM file extraction failed: %s", exc)
+        logger.warning("LLM file extraction failed, using regex fallback: %s", exc)
+        return _extract_files_from_text(stacktrace, error_message)
+
+
+def _extract_files_from_text(stacktrace: str, error_message: str = "") -> list[str]:
+    """Best-effort extraction for source file paths without LLM."""
+    text = "\n".join(part for part in [stacktrace, error_message] if part)
+    if not text:
         return []
+
+    # Examples matched:
+    #   File "/app/src/services/payment.py", line 10
+    #   at src/services/payment.ts:12:4
+    #   /home/site/wwwroot/src/api/orders.js:42
+    file_patterns = [
+        r"File\s+[\"']([^\"']+\.[a-zA-Z0-9]+)[\"']",
+        r"(?:^|\s)(/[^\s:\"']+\.[a-zA-Z0-9]+)(?::\d+)?",
+        r"(?:^|\s)([A-Za-z0-9_./\\-]+\.[a-zA-Z0-9]+)(?::\d+)?",
+    ]
+
+    extracted: list[str] = []
+    for pattern in file_patterns:
+        for match in re.findall(pattern, text, flags=re.MULTILINE):
+            candidate = match.replace("\\", "/").strip()
+            candidate = _normalize_repo_relative_path(candidate)
+            if _looks_like_real_file(candidate):
+                extracted.append(candidate)
+
+    # Keep order stable while deduplicating
+    deduped = list(dict.fromkeys(extracted))
+    return deduped
+
+
+def _normalize_repo_relative_path(path: str) -> str:
+    """Trim common deployment/runtime prefixes and leading path noise."""
+    normalized = path.strip().replace("\\", "/")
+    prefixes = [
+        "/app/",
+        "/home/site/wwwroot/",
+        "/var/task/",
+        "./",
+    ]
+    for prefix in prefixes:
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):]
+            break
+    return normalized.lstrip("/")
 
 
 def _looks_like_real_file(path: str) -> bool:
@@ -199,11 +251,13 @@ def push_incident(incident: dict[str, Any]) -> bool:
         logger.error("AZURE_SEARCH_ENDPOINT not set — cannot push incident")
         return False
 
+    key = os.getenv("AZURE_SEARCH_KEY")
+
     try:
-        credential = DefaultAzureCredential()
+        credential = AzureKeyCredential(key) if key else DefaultAzureCredential()
         search_client = SearchClient(
             endpoint=endpoint,
-            index_name="incidents",
+            index_name=INDEX_NAME,
             credential=credential,
         )
 
@@ -220,6 +274,75 @@ def push_incident(incident: dict[str, Any]) -> bool:
     except Exception as exc:
         logger.error("AI Search push failed: %s", exc)
         return False
+
+
+def _build_incident_from_exception(
+    exception_data: dict[str, Any],
+    title_prefix: str = "Auto-ingested incident",
+) -> dict[str, Any]:
+    """Map an exception log row to the incidents index schema."""
+    timestamp = exception_data.get("timestamp", "")
+    service_name = exception_data.get("service_name", "unknown-service")
+    exception_type = exception_data.get("exception_type", "")
+    message = exception_data.get("message", "")
+    files_involved = exception_data.get("files_involved", [])
+
+    identity_material = f"{timestamp}|{service_name}|{exception_type}|{message}".encode("utf-8")
+    short_hash = hashlib.sha1(identity_material).hexdigest()[:12]
+
+    return {
+        "id": f"INC-log-{short_hash}",
+        "timestamp": timestamp,
+        "title": f"{title_prefix}: {service_name}",
+        "severity": "high",
+        "files_involved": files_involved,
+        "error_message": message,
+        "root_cause": "",
+        "affected_services": [service_name],
+        "duration_minutes": 0,
+    }
+
+
+async def ingest_from_logs(
+    workspace_id: str,
+    resource_name: str,
+    fired_time: str | None = None,
+    window_minutes: int = 30,
+) -> dict[str, int]:
+    """
+    Independent Azure-native ingestion path:
+    Log Analytics exceptions -> file extraction -> AI Search incidents index.
+
+    Returns summary counts with keys: fetched, prepared, pushed.
+    """
+    effective_fired_time = fired_time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    exceptions = await fetch_exceptions(
+        workspace_id=workspace_id,
+        resource_name=resource_name,
+        fired_time=effective_fired_time,
+        window_minutes=window_minutes,
+    )
+    if not exceptions:
+        return {"fetched": 0, "prepared": 0, "pushed": 0}
+
+    prepared = 0
+    pushed = 0
+    for exception_data in exceptions:
+        files = await extract_files(
+            stacktrace=exception_data.get("stacktrace", ""),
+            error_message=exception_data.get("message", ""),
+        )
+        if not files:
+            continue
+
+        exception_data["files_involved"] = sorted(set(files))
+        incident = _build_incident_from_exception(exception_data)
+        prepared += 1
+        if push_incident(incident):
+            pushed += 1
+
+    return {"fetched": len(exceptions), "prepared": prepared, "pushed": pushed}
 
 
 # ── Main Ingestion Pipeline ──────────────────────────────────
@@ -307,3 +430,58 @@ async def ingest_from_alert(alert_payload: dict[str, Any]) -> dict[str, Any] | N
     # ── Push to AI Search ────────────────────────────────
     success = push_incident(incident)
     return incident if success else None
+
+
+def main() -> None:
+    """CLI for independent Azure-native log ingestion."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    parser = argparse.ArgumentParser(description="PRism Azure-native incident ingest")
+    parser.add_argument(
+        "--workspace-id",
+        default=os.getenv("AZURE_LOG_WORKSPACE_ID", ""),
+        help="Azure Log Analytics workspace ID",
+    )
+    parser.add_argument(
+        "--resource-name",
+        default=os.getenv("AZURE_RESOURCE_NAME", ""),
+        help="Service/resource name (cloud_RoleName)",
+    )
+    parser.add_argument(
+        "--fired-time",
+        default=os.getenv("AZURE_INGEST_FIRED_TIME", ""),
+        help="Reference UTC time (ISO-8601), e.g. 2026-03-04T12:00:00Z",
+    )
+    parser.add_argument(
+        "--window-minutes",
+        type=int,
+        default=int(os.getenv("AZURE_INGEST_WINDOW_MINUTES", "30")),
+        help="Query window in minutes around fired-time",
+    )
+    args = parser.parse_args()
+
+    if not args.workspace_id:
+        raise SystemExit("--workspace-id or AZURE_LOG_WORKSPACE_ID is required")
+    if not args.resource_name:
+        raise SystemExit("--resource-name or AZURE_RESOURCE_NAME is required")
+    if not args.fired_time:
+        raise SystemExit("--fired-time or AZURE_INGEST_FIRED_TIME is required")
+
+    summary = asyncio.run(
+        ingest_from_logs(
+            workspace_id=args.workspace_id,
+            resource_name=args.resource_name,
+            fired_time=args.fired_time,
+            window_minutes=args.window_minutes,
+        )
+    )
+    logger.info(
+        "Ingest complete: fetched=%d prepared=%d pushed=%d",
+        summary["fetched"],
+        summary["prepared"],
+        summary["pushed"],
+    )
+
+
+if __name__ == "__main__":
+    main()
