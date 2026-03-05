@@ -68,7 +68,7 @@
         "prism.autoRefresh": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically refresh the sidebar when the active branch changes."
+          "description": "Automatically poll and refresh the sidebar at a fixed interval."
         },
         "prism.refreshIntervalSeconds": {
           "type": "number",
