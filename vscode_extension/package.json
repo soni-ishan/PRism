@@ -15,7 +15,7 @@
     "Other",
     "Testing"
   ],
-  "icon": "media/icon.png",
+  "icon": "media/prism-icon.svg",
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
