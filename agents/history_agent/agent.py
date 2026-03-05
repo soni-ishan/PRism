@@ -3,19 +3,15 @@ History Agent - Correlates PR changes with past incidents to assess deployment r
 Data Source: Azure AI Search via MCP Server
 """
 import json
+import logging
 import sys
-import os
-
-# Add project root to path for imports
-_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
-
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 from agents.shared.data_contract import AgentResult
 from mcp_servers.azure_mcp_server.mcp_server import AzureMCPServer
+
+logger = logging.getLogger("prism.history_agent")
 
 
 class HistoryAgent:
@@ -53,10 +49,10 @@ class HistoryAgent:
         # Connect to Azure (or use provided connection)
         try:
             self.azure_mcp = azure_mcp or AzureMCPServer()
-            print("[HistoryAgent] ✅ Connected to Azure AI Search", file=sys.stderr)
+            logger.info("Connected to Azure AI Search")
         except Exception as e:
-            print(f"[HistoryAgent] ❌ Azure connection failed: {e}", file=sys.stderr)
-            print("[HistoryAgent] 💡 Run: python setup_azure_search.py", file=sys.stderr)
+            logger.error("Azure connection failed: %s", e)
+            logger.info("Run: python setup_azure_search.py")
             raise RuntimeError(f"Azure AI Search required: {e}") from e
     
     def analyze_pr(self, pr_files: List[str]) -> Dict[str, Any]:
@@ -140,7 +136,7 @@ class HistoryAgent:
             RuntimeError: If Azure query fails
         """
         try:
-            print(f"[HistoryAgent] 🔍 Searching incidents for: {pr_files}", file=sys.stderr)
+            logger.info("Searching incidents for: %s", pr_files)
             
             self.incidents = self.azure_mcp.query_incidents_by_files_search(
                 file_paths=pr_files,
@@ -148,10 +144,10 @@ class HistoryAgent:
             )
             
             count = len(self.incidents)
-            print(f"[HistoryAgent] ✅ Found {count} incident(s) from Azure", file=sys.stderr)
+            logger.info("Found %d incident(s) from Azure", count)
                 
         except Exception as e:
-            print(f"[HistoryAgent] ❌ Query failed: {e}", file=sys.stderr)
+            logger.error("Query failed: %s", e)
             raise RuntimeError(f"Failed to fetch incidents from Azure: {e}") from e
     
     def _correlate_files_with_incidents(self, pr_files: List[str]) -> Dict[str, List[Dict]]:
@@ -311,7 +307,7 @@ def main():
     files_changed = sys.argv[1:] if len(sys.argv) > 1 else ["payment_service.py"]
     
     if len(sys.argv) < 2:
-        print("[HistoryAgent] No files provided, using test: payment_service.py", file=sys.stderr)
+        logger.info("No files provided, using test: payment_service.py")
     
     try:
         agent = HistoryAgent()
@@ -319,8 +315,8 @@ def main():
         print(json.dumps(result, indent=2))
         
     except RuntimeError as e:
-        print(f"\n❌ {e}", file=sys.stderr)
-        print("\n📝 Setup: python setup_azure_search.py", file=sys.stderr)
+        logger.error("\n❌ %s", e)
+        logger.info("\n📝 Setup: python setup_azure_search.py")
         sys.exit(1)
 
 
