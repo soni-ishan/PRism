@@ -1,0 +1,95 @@
+{
+  "name": "prism-risk-gate",
+  "displayName": "PRism — Deployment Risk Intelligence",
+  "description": "AI-powered pre-deployment risk gate. Shows a Deployment Confidence Score, risk findings, and rollback playbooks right in your VS Code sidebar.",
+  "version": "0.1.0",
+  "publisher": "team-prism",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soni-ishan/PRism.git"
+  },
+  "categories": [
+    "Other",
+    "Testing"
+  ],
+  "icon": "media/prism-icon.svg",
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "prism-container",
+          "title": "PRism",
+          "icon": "media/prism-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "prism-container": [
+        {
+          "type": "webview",
+          "id": "prism.sidebar",
+          "name": "Deployment Confidence",
+          "icon": "media/prism-icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "prism.rerunAnalysis",
+        "title": "PRism: Re-run Analysis",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prism.showReport",
+        "title": "PRism: Show Full Report"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "prism.rerunAnalysis",
+          "when": "view == prism.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "PRism",
+      "properties": {
+        "prism.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the PRism FastAPI backend server."
+        },
+        "prism.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically poll and refresh the sidebar at a fixed interval."
+        },
+        "prism.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 30,
+          "description": "Polling interval (in seconds) for auto-refresh."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "npx --no-install tsc -p ./",
+    "watch": "npx --no-install tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.3"
+  }
+}

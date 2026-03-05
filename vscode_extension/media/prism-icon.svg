@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Prism / triangle -->
+  <polygon points="12,2 22,20 2,20" fill="none" stroke="currentColor" stroke-width="2"/>
+  <!-- Score gauge arc inside -->
+  <path d="M8,15 A5,5 0 0,1 16,15" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <!-- Gauge needle -->
+  <line x1="12" y1="15" x2="14" y2="10" stroke="currentColor" stroke-width="1.5"/>
+  <!-- Dot at needle base -->
+  <circle cx="12" cy="15" r="1" fill="currentColor"/>
+</svg>

@@ -8,6 +8,7 @@ and recency ordering for incident detail findings.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 from agents.history_agent.agent import HistoryAgent
 
@@ -31,8 +32,11 @@ def _incident(
 
 
 def _agent_with_data(incidents: list[dict], deployment_events: list[dict] | None = None) -> HistoryAgent:
-    """Create a HistoryAgent with in-memory test data only."""
-    agent = HistoryAgent()
+    """Create a HistoryAgent with in-memory test data only (no Azure needed)."""
+    mock_mcp = MagicMock()
+    # Return test incidents when Azure Search is queried
+    mock_mcp.query_incidents_by_files_search.return_value = incidents
+    agent = HistoryAgent(azure_mcp=mock_mcp)
     agent.incidents = incidents
     agent.deployment_events = deployment_events or []
     return agent
