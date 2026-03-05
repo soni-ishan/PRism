@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
@@ -31,23 +32,26 @@ from agents.orchestrator import PRPayload, orchestrate
 
 logger = logging.getLogger("prism.server")
 
-app = FastAPI(
-    title="PRism — Deployment Risk Intelligence",
-    description="Agentic AI pre-deployment risk gate",
-    version="0.1.0",
-)
 
+# ── Lifespan: Foundry tracing ─────────────────────────────────────────────
 
-# ── Startup: Foundry tracing ──────────────────────────────────────────────
-
-@app.on_event("startup")
-async def _startup_tracing():
-    """Initialise OpenTelemetry tracing at application startup."""
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Application lifespan: initialise tracing on startup."""
     try:
         from foundry.deployment_config import setup_tracing
         setup_tracing()
     except ImportError:
         logger.debug("Foundry module not available — tracing disabled.")
+    yield
+
+
+app = FastAPI(
+    title="PRism — Deployment Risk Intelligence",
+    description="Agentic AI pre-deployment risk gate",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 
 
 # ── Healthcheck ──────────────────────────────────────────────────────

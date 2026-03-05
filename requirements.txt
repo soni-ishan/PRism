@@ -1,19 +1,26 @@
-# Azure MCP Server Dependencies
-azure-monitor-query==1.2.0
-azure-search-documents==11.4.0
-pydantic>=2.0
-semantic-kernel>=1.0
-azure-identity
-azure-ai-projects
-azure-identity==1.14.0
-aiohttp
-httpx
+# ── Core ──
 fastapi
 uvicorn
-azure-functions
-# Foundry governance (Step 4)
+pydantic>=2.0
+python-dotenv
+aiohttp
+httpx
+
+# ── Azure OpenAI & AI Services ──
 openai
+semantic-kernel>=1.0
+azure-identity==1.14.0
+azure-ai-projects
+azure-ai-contentsafety
+
+# ── Azure AI Search (History Agent) ──
+azure-search-documents==11.4.0
+azure-monitor-query==1.2.0
+
+# ── Observability (Foundry / App Insights) ──
 opentelemetry-sdk
 opentelemetry-api
 azure-monitor-opentelemetry-exporter
-azure-ai-contentsafety
+
+# ── MCP Client (Diff Analyst) ──
+mcp
