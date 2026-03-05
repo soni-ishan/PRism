@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "functionAppName": {
+      "value": "prism-ingest-func-<unique>"
+    },
+    "storageAccountName": {
+      "value": "prismingest<unique>"
+    },
+    "azureLogWorkspaceId": {
+      "value": "<log-analytics-workspace-id-guid>"
+    },
+    "azureResourceName": {
+      "value": "<cloud-role-name-service>"
+    },
+    "azureSearchEndpoint": {
+      "value": "https://<search-service>.search.windows.net"
+    },
+    "azureSearchKey": {
+      "value": ""
+    },
+    "azureIngestWindowMinutes": {
+      "value": 30
+    },
+    "azureOpenAIEndpoint": {
+      "value": ""
+    },
+    "azureOpenAIDeployment": {
+      "value": ""
+    }
+  }
+}
