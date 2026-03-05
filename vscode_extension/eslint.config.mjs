@@ -5,7 +5,7 @@ export default [
   { files: ["**/*.ts"] },
   {
     plugins: { "@typescript-eslint": typescriptEslint },
-    languageParser: { parser: tsParser, ecmaVersion: 2022, sourceType: "module" },
+    languageOptions: { parser: tsParser, ecmaVersion: 2022, sourceType: "module" },
     rules: {
       "@typescript-eslint/naming-convention": [
         "warn",
