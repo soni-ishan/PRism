@@ -9,6 +9,7 @@ be tested in isolation.
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -55,7 +56,7 @@ MOCK_VERDICT = VerdictReport(
 
 def _run(coro):
     """Run an async coroutine from sync test code."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── Fallback tests ───────────────────────────────────────────────────
@@ -327,8 +328,9 @@ _diff_ready = pytest.mark.skipif(
     reason="Diff Analyst agent not yet implemented",
 )
 _history_ready = pytest.mark.skipif(
-    not _agent_is_ready("agents.history_agent"),
-    reason="History Agent not yet implemented",
+    not _agent_is_ready("agents.history_agent")
+    or not os.getenv("AZURE_SEARCH_ENDPOINT"),
+    reason="History Agent not ready or Azure credentials not configured",
 )
 _coverage_ready = pytest.mark.skipif(
     not _agent_is_ready("agents.coverage_agent"),

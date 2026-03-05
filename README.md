@@ -204,10 +204,20 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Fill in: AZURE_FOUNDRY_KEY, GITHUB_TOKEN, AZURE_MONITOR_ENDPOINT, AZURE_SEARCH_ENDPOINT
+# Fill in Azure credentials:
+#   - AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
+#   - AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY
+#   - AZURE_FOUNDRY_PROJECT_CONNECTION_STRING
+#   - GITHUB_TOKEN
+
+# Setup Azure AI Search with sample incident data (required for History Agent)
+python tests/test_azure_search.py
+
+# Run tests
+python test_integration.py
 
 # Run the orchestrator locally
-python agents/orchestrator/main.py
+uvicorn agents.orchestrator.server:app --reload --port 8000
 ```
 
 Full Azure deployment: see [`foundry/deployment_config/README.md`](foundry/deployment_config/README.md)

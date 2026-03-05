@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
@@ -31,10 +32,25 @@ from agents.orchestrator import PRPayload, orchestrate
 
 logger = logging.getLogger("prism.server")
 
+
+# ── Lifespan: Foundry tracing ─────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Application lifespan: initialise tracing on startup."""
+    try:
+        from foundry.deployment_config import setup_tracing
+        setup_tracing()
+    except ImportError:
+        logger.debug("Foundry module not available — tracing disabled.")
+    yield
+
+
 app = FastAPI(
     title="PRism — Deployment Risk Intelligence",
     description="Agentic AI pre-deployment risk gate",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -51,7 +67,19 @@ async def health():
 async def analyze(payload: PRPayload):
     """Accept a ``PRPayload`` directly and run the full pipeline."""
     verdict = await orchestrate(payload)
-    return verdict.model_dump()
+
+    # Apply Foundry policy guardrails
+    guardrails = None
+    try:
+        from foundry.deployment_config import apply_policy_guardrails
+        guardrails = apply_policy_guardrails(verdict, payload.model_dump())
+    except ImportError:
+        pass
+
+    response = verdict.model_dump()
+    if guardrails is not None:
+        response["guardrails"] = guardrails
+    return response
 
 
 # ── GitHub Webhook ───────────────────────────────────────────────────
@@ -159,6 +187,14 @@ async def _run_orchestration(payload: PRPayload) -> None:
         payload.changed_files = changed_files
         payload.diff = diff
     verdict = await orchestrate(payload)
+
+    # Apply Foundry policy guardrails
+    try:
+        from foundry.deployment_config import apply_policy_guardrails
+        apply_policy_guardrails(verdict, payload.model_dump())
+    except ImportError:
+        pass
+
     logger.info(
         "Background orchestration complete for PR #%d: %s",
         payload.pr_number,

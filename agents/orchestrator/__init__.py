@@ -90,24 +90,40 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
 
     Returns exactly four ``AgentResult`` objects — one per agent.
     If an agent raises an exception, a fallback payload is substituted.
+    Each agent invocation is wrapped with ``trace_agent_call()`` for
+    OpenTelemetry latency tracking via Foundry.
     """
+    # Lazy import of tracing — no-op if Foundry module is unavailable
+    try:
+        from foundry.deployment_config import trace_agent_call
+    except ImportError:
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def trace_agent_call(name: str):  # type: ignore[misc]
+            yield
+
     # Lazy imports so the Orchestrator doesn't crash if a teammate's
     # module has a transient import-time error.
     async def _run_timing() -> AgentResult:
-        from agents.timing_agent import run as run_timing
-        return await run_timing(deploy_timestamp=payload.timestamp)
+        async with trace_agent_call("Timing Agent"):
+            from agents.timing_agent import run as run_timing
+            return await run_timing(deploy_timestamp=payload.timestamp)
 
     async def _run_diff() -> AgentResult:
-        from agents.diff_analyst import run as run_diff
-        return await run_diff(diff=payload.diff, changed_files=payload.changed_files)
+        async with trace_agent_call("Diff Analyst"):
+            from agents.diff_analyst import run as run_diff
+            return await run_diff(diff=payload.diff, changed_files=payload.changed_files)
 
     async def _run_history() -> AgentResult:
-        from agents.history_agent import run as run_history
-        return await run_history(changed_files=payload.changed_files)
+        async with trace_agent_call("History Agent"):
+            from agents.history_agent import run as run_history
+            return await run_history(changed_files=payload.changed_files)
 
     async def _run_coverage() -> AgentResult:
-        from agents.coverage_agent import run as run_coverage
-        return await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
+        async with trace_agent_call("Coverage Agent"):
+            from agents.coverage_agent import run as run_coverage
+            return await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
 
     agent_coros = [
         _run_diff(),
