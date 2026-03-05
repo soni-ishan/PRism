@@ -89,6 +89,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private _latestVerdict: VerdictReport = MOCK_VERDICT;
+  private _cachedBranch: string | undefined;
+  private _cachedRepo: string | null = null;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -129,6 +131,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Re-fetch from the backend and re-render. */
   public async refresh(): Promise<void> {
+    // Refresh cached git info asynchronously (non-blocking)
+    [this._cachedBranch, this._cachedRepo] = await Promise.all([
+      this._getCurrentBranch(),
+      this._detectRepo(),
+    ]);
+
     const verdict = await this._fetchVerdict();
     if (verdict) {
       this._latestVerdict = verdict;
@@ -149,23 +157,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   // ── Private Helpers ───────────────────────────────────────────────
 
-  /** Try to detect the current Git branch name. */
-  private _getCurrentBranch(): string | undefined {
+  /** Detect the current Git branch name asynchronously. */
+  private _getCurrentBranch(): Promise<string | undefined> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      return undefined;
+      return Promise.resolve(undefined);
     }
-    try {
-      const branch = cp
-        .execSync("git rev-parse --abbrev-ref HEAD", {
-          cwd: workspaceFolder.uri.fsPath,
-          encoding: "utf-8",
-        })
-        .trim();
-      return branch;
-    } catch {
-      return undefined;
-    }
+    return new Promise((resolve) => {
+      cp.execFile(
+        "git",
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { cwd: workspaceFolder.uri.fsPath, encoding: "utf-8" },
+        (err, stdout) => {
+          resolve(err ? undefined : stdout.trim());
+        }
+      );
+    });
   }
 
   /** Fetch a VerdictReport from the PRism backend `/analyze` endpoint. */
@@ -173,10 +180,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const config = vscode.workspace.getConfiguration("prism");
     const baseUrl = config.get<string>("serverUrl", "http://localhost:8000");
 
-    // Build a minimal PRPayload from the current workspace state
-    const branch = this._getCurrentBranch();
+    // Use cached git info (populated by refresh())
+    const branch = this._cachedBranch;
     const prNumber = this._extractPrNumber(branch);
-    const repo = this._detectRepo();
+    const repo = this._cachedRepo;
 
     const payload = {
       pr_number: prNumber ?? 0,
@@ -215,25 +222,29 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     return match ? parseInt(match[1], 10) : null;
   }
 
-  /** Detect the GitHub repo slug from the git remote. */
-  private _detectRepo(): string | null {
+  /** Detect the GitHub repo slug from the git remote asynchronously. */
+  private _detectRepo(): Promise<string | null> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      return null;
+      return Promise.resolve(null);
     }
-    try {
-      const remote = cp
-        .execSync("git remote get-url origin", {
-          cwd: workspaceFolder.uri.fsPath,
-          encoding: "utf-8",
-        })
-        .trim();
-      // https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
-      const m = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
-      return m ? m[1] : null;
-    } catch {
-      return null;
-    }
+    return new Promise((resolve) => {
+      cp.execFile(
+        "git",
+        ["remote", "get-url", "origin"],
+        { cwd: workspaceFolder.uri.fsPath, encoding: "utf-8" },
+        (err, stdout) => {
+          if (err) {
+            resolve(null);
+            return;
+          }
+          const remote = stdout.trim();
+          // https://github.com/owner/repo.git  or  git@github.com:owner/repo.git
+          const m = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+          resolve(m ? m[1] : null);
+        }
+      );
+    });
   }
 
   /** Show the rollback playbook in a new editor tab. */
@@ -459,7 +470,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="branch-info">
-    Branch: <strong>${this._escapeHtml(this._getCurrentBranch() ?? "unknown")}</strong>
+    Branch: <strong>${this._escapeHtml(this._cachedBranch ?? "unknown")}</strong>
   </div>
 
   <!-- Score Gauge -->
