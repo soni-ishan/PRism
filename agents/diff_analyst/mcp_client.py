@@ -32,7 +32,7 @@ def _extract_text_from_tool_result(result: Any) -> str:
 
 
 def _get_github_token() -> str:
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
+    token = os.environ.get("GITHUB_TOKEN")   or os.environ.get("GH_PAT") or os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Missing GitHub token. Set GITHUB_TOKEN or GITHUB_PERSONAL_ACCESS_TOKEN.")
     return token
@@ -48,6 +48,7 @@ async def fetch_pr_diff_async(owner: str, repo: str, pr_number: int) -> str:
     # Provide token under both names to reduce surprises across environments.
     server_env = {
         "GITHUB_TOKEN": token,
+        "GH_PAT": token,
         "GITHUB_PERSONAL_ACCESS_TOKEN": token,
         "GITHUB_READ_ONLY": "1",
     }
