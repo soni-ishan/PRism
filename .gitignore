@@ -1,2 +1,6 @@
 .env
 __pycache__/
+
+# VS Code extension
+vscode_extension/node_modules/
+vscode_extension/out/
