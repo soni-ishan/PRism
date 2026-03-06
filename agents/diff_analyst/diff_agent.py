@@ -70,13 +70,13 @@ def heuristic_scan(diff_text: str) -> Tuple[int, str, List[str]]:
             "Schema/migration risk detected (SQL/DDL keywords present). Review for breaking or destructive changes."
         )
 
-    # C) Retry/timeout/backoff removal hints (only if removed lines mention them)
-    if any(rx.search(diff_text) for rx in RETRY_REMOVAL_HINTS):
-        if re.search(r"^-.*(retry|backoff|timeout|idempotency|circuit)", diff_text, flags=re.I | re.M):
-            findings.append("Potential removal of retry/timeout/backoff/idempotency logic detected in removed lines.")
+    # C) Retry/timeout/backoff removal hints
+    if re.search(r"^\s*-\s*.*(retry|backoff|timeout|idempotency|circuit)", diff_text, flags=re.I | re.M):
+        findings.append("Potential removal of retry/timeout/backoff/idempotency logic detected in removed lines.")
 
     # B) Error handling removal hints (only if removed lines mention them)
-    if re.search(r"^-.*(try|except|catch|raise|throw)", diff_text, flags=re.I | re.M):
+    #if re.search(r"^-.*(try|except|catch|raise|throw)", diff_text, flags=re.I | re.M):
+    if re.search(r"^\s*-\s*.*(try|except|catch|raise|throw)", diff_text, flags=re.I | re.M):
         findings.append("Potential removal of error handling detected in removed lines (try/catch/raise/throw).")
 
     if not findings:
