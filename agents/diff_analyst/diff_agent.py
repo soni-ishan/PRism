@@ -196,6 +196,33 @@ def _run_core(diff_text: str, changed_files: List[str]) -> AgentResult:
     if changed_files:
         context_prefix = "CHANGED FILES:\n" + "\n".join(f"- {p}" for p in changed_files[:200]) + "\n\n"
 
+    # If Azure OpenAI is not configured (CI environment), fall back to heuristics only
+    if not (
+    os.environ.get("AZURE_OPENAI_ENDPOINT")
+    and os.environ.get("AZURE_OPENAI_API_KEY")
+    and os.environ.get("AZURE_OPENAI_DEPLOYMENT")
+    ):
+        if h_status == "pass":
+            return AgentResult(
+                 agent_name=AGENT_NAME,
+                risk_score_modifier=0,
+                status="pass",
+                findings=[
+                "No critical anti-patterns detected in the provided diff.",
+                "Checked for: hardcoded secrets, removed error handling, removed retries/timeouts/backoff, and schema/migration risks.",
+                 ],
+                recommended_action="No action needed.",
+        )
+
+        return AgentResult(
+             agent_name=AGENT_NAME,
+             risk_score_modifier=h_risk,
+             status=h_status,
+             findings=h_findings[:8],
+            recommended_action="Review the findings before merge (LLM unavailable in this environment).",
+    )
+
+    # Normal LLM path
     raw = call_llm(SYSTEM_PROMPT, context_prefix + diff_text)
 
     try:
