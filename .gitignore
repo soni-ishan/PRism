@@ -24,7 +24,7 @@ vscode_extension/node_modules/
 vscode_extension/out/
 
 # Azure deployment
-foundry/deployment_config/parameters.json
+foundry/deployment_config/bicep/parameters.json
 deployment-outputs.json
 deployment-output.json
 params.json

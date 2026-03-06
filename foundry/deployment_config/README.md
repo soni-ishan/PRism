@@ -2,19 +2,26 @@
 
 This directory contains Infrastructure as Code (IaC) templates and deployment scripts for PRism on Azure.
 
-## 📁 Files Overview
+## 📁 Directory Structure
 
-| File | Purpose |
-|------|---------|
-| `main.bicep` | Main Azure Bicep template - defines all Azure resources |
-| `parameters.json` | Deployment parameters (fill in your values) |
-| `parameters.example.json` | Example parameters file |
-| `Dockerfile.orchestrator` | Docker image for the orchestrator service |
-| `docker-compose.yml` | Local development environment |
-| `deploy.ps1` | PowerShell deployment script (Windows) |
-| `deploy.sh` | Bash deployment script (Linux/Mac) |
-| `cleanup.ps1` | PowerShell cleanup script (Windows) |
-| `cleanup.sh` | Bash cleanup script (Linux/Mac) |
+```
+deployment_config/
+├── bicep/                        # Infrastructure as Code
+│   ├── main.bicep                # Main Azure Bicep template
+│   ├── main.json                 # Compiled ARM template
+│   ├── parameters.json           # Deployment parameters (fill in your values)
+│   └── parameters.example.json   # Example parameters file
+├── scripts/                      # Deployment & cleanup scripts
+│   ├── deploy.ps1                # PowerShell deployment (Windows)
+│   ├── deploy.sh                 # Bash deployment (Linux/Mac)
+│   ├── cleanup.ps1               # PowerShell cleanup (Windows)
+│   └── cleanup.sh                # Bash cleanup (Linux/Mac)
+├── docker/                       # Container configuration
+│   ├── Dockerfile.orchestrator   # Docker image for the orchestrator
+│   └── docker-compose.yml        # Local development environment
+├── README.md
+└── __init__.py
+```
 
 ## 🚀 Quick Start
 
@@ -27,7 +34,7 @@ This directory contains Infrastructure as Code (IaC) templates and deployment sc
 ### 2. Configure Parameters
 ```bash
 # Copy the template and fill in your values
-cp parameters.example.json parameters.json
+cp bicep/parameters.example.json bicep/parameters.json
 
 # Edit parameters.json with your:
 # - GitHub token
@@ -39,13 +46,13 @@ cp parameters.example.json parameters.json
 
 **Windows (PowerShell):**
 ```powershell
-.\deploy.ps1
+.\scripts\deploy.ps1
 ```
 
 **Linux/Mac (Bash):**
 ```bash
-chmod +x deploy.sh
-./deploy.sh
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
 ```
 
 ### 4. Verify
@@ -86,22 +93,22 @@ The Bicep template creates:
 
 ### Standard Deployment
 ```powershell
-.\deploy.ps1
+.\scripts\deploy.ps1
 ```
 
 ### Custom Resource Group & Location
 ```powershell
-.\deploy.ps1 -ResourceGroupName "rg-prism-dev" -Location "westus2"
+.\scripts\deploy.ps1 -ResourceGroupName "rg-prism-dev" -Location "westus2"
 ```
 
 ### Skip Infrastructure (Update apps only)
 ```powershell
-.\deploy.ps1 -SkipInfrastructure
+.\scripts\deploy.ps1 -SkipInfrastructure
 ```
 
 ### Skip Docker Build (Infrastructure only)
 ```powershell
-.\deploy.ps1 -SkipDocker
+.\scripts\deploy.ps1 -SkipDocker
 ```
 
 ## 🧪 Local Development
@@ -115,7 +122,7 @@ cp ../.env.template .env
 # Fill in Azure resource endpoints in .env
 
 # Start with Docker Compose
-docker-compose up
+docker-compose -f docker/docker-compose.yml up
 
 # Or run directly with Python
 cd ../..
@@ -126,7 +133,7 @@ uvicorn agents.orchestrator.server:app --reload --port 8000
 
 ### Modify Azure Resources
 
-Edit `main.bicep` to customize:
+Edit `bicep/main.bicep` to customize:
 - **SKUs**: Change `sku.name` for any service (e.g., OpenAI capacity)
 - **Regions**: Update `location` parameter
 - **Scaling**: Adjust Container App min/max replicas
@@ -139,7 +146,7 @@ param openAiModelCapacity int = 50  // Increase from 30
 
 ### Environment Variables
 
-Add environment variables to the Container App in `main.bicep`:
+Add environment variables to the Container App in `bicep/main.bicep`:
 ```bicep
 {
   name: 'MY_CUSTOM_VAR'
@@ -161,17 +168,17 @@ Or use secrets:
 
 **Windows:**
 ```powershell
-.\cleanup.ps1 -ResourceGroupName "rg-prism-dev"
+.\scripts\cleanup.ps1 -ResourceGroupName "rg-prism-dev"
 ```
 
 **Linux/Mac:**
 ```bash
-./cleanup.sh --resource-group rg-prism-dev
+./scripts/cleanup.sh --resource-group rg-prism-dev
 ```
 
 With force (skip confirmation):
 ```bash
-./cleanup.sh --resource-group rg-prism-dev --force
+./scripts/cleanup.sh --resource-group rg-prism-dev --force
 ```
 
 ## 📊 Cost Estimation

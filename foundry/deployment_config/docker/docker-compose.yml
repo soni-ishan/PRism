@@ -12,7 +12,7 @@ services:
   orchestrator:
     build:
       context: ../..
-      dockerfile: foundry/deployment_config/Dockerfile.orchestrator
+      dockerfile: foundry/deployment_config/docker/Dockerfile.orchestrator
     ports:
       - "8000:8000"
     environment:

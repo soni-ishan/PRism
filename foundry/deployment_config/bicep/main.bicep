@@ -57,6 +57,9 @@ param openAiModelVersion string = '2024-11-20'
 @description('Azure OpenAI model capacity (TPM in thousands)')
 param openAiModelCapacity int = 30
 
+@description('Deploy Azure Functions MCP server (requires Dynamic VM quota)')
+param deployFunctionApp bool = false
+
 @description('Tags to apply to all resources')
 param tags object = {
   project: 'PRism'
@@ -79,7 +82,7 @@ var appInsightsName = '${namingPrefix}-appins'
 var openAiName = '${namingPrefix}-openai'
 var searchName = '${namingPrefix}-search-${uniqueSuffix}'
 var contentSafetyName = '${namingPrefix}-contentsafety'
-var storageAccountName = '${projectName}${environment}st${uniqueSuffix}'
+var storageAccountName = take('${projectName}${environment}st${uniqueSuffix}', 24)
 var functionAppName = '${namingPrefix}-func'
 var hostingPlanName = '${namingPrefix}-plan'
 var containerAppEnvName = '${namingPrefix}-env'
@@ -99,7 +102,7 @@ resource orchestratorIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@
   tags: tags
 }
 
-resource functionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource functionIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (deployFunctionApp) {
   name: functionIdentityName
   location: location
   tags: tags
@@ -160,7 +163,7 @@ resource orchestratorKeyVaultAccess 'Microsoft.Authorization/roleAssignments@202
 }
 
 // Grant function identity access to Key Vault
-resource functionKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource functionKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(keyVault.id, functionIdentity.id, 'KeyVaultSecretsUser')
   scope: keyVault
   properties: {
@@ -252,7 +255,7 @@ resource orchestratorOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-
 }
 
 // Grant function identity access to OpenAI
-resource functionOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource functionOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(openAi.id, functionIdentity.id, 'CognitiveServicesOpenAIUser')
   scope: openAi
   properties: {
@@ -294,7 +297,7 @@ resource orchestratorSearchAccess 'Microsoft.Authorization/roleAssignments@2022-
 }
 
 // Grant function identity access to AI Search
-resource functionSearchAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource functionSearchAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(search.id, functionIdentity.id, 'SearchIndexDataContributor')
   scope: search
   properties: {
@@ -365,7 +368,7 @@ resource orchestratorAcrAccess 'Microsoft.Authorization/roleAssignments@2022-04-
 // STORAGE ACCOUNT (for Azure Functions)
 // ════════════════════════════════════════════════════════════════
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = if (deployFunctionApp) {
   name: storageAccountName
   location: location
   tags: tags
@@ -384,7 +387,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
 // AZURE FUNCTIONS (Azure MCP Server)
 // ════════════════════════════════════════════════════════════════
 
-resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = {
+resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (deployFunctionApp) {
   name: hostingPlanName
   location: location
   tags: tags
@@ -392,12 +395,13 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = {
     name: 'Y1'
     tier: 'Dynamic'
   }
+  kind: 'functionapp'
   properties: {
     reserved: true // Required for Linux
   }
 }
 
-resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
+resource functionApp 'Microsoft.Web/sites@2023-01-01' = if (deployFunctionApp) {
   name: functionAppName
   location: location
   tags: tags
@@ -439,8 +443,24 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           value: openAiModelDeployment
         }
         {
+          name: 'AZURE_OPENAI_API_KEY'
+          value: openAi.listKeys().key1
+        }
+        {
           name: 'AZURE_AI_SEARCH_ENDPOINT'
           value: 'https://${search.name}.search.windows.net'
+        }
+        {
+          name: 'AZURE_AI_SEARCH_KEY'
+          value: search.listAdminKeys().primaryKey
+        }
+        {
+          name: 'AZURE_CONTENT_SAFETY_ENDPOINT'
+          value: contentSafety.properties.endpoint
+        }
+        {
+          name: 'AZURE_CONTENT_SAFETY_KEY'
+          value: contentSafety.listKeys().key1
         }
         {
           name: 'AZURE_LOG_WORKSPACE_ID'
@@ -516,6 +536,26 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           name: 'appinsights-connection-string'
           value: appInsights.properties.ConnectionString
         }
+        {
+          name: 'github-token'
+          value: githubToken
+        }
+        {
+          name: 'github-webhook-secret'
+          value: githubWebhookSecret
+        }
+        {
+          name: 'openai-api-key'
+          value: openAi.listKeys().key1
+        }
+        {
+          name: 'content-safety-key'
+          value: contentSafety.listKeys().key1
+        }
+        {
+          name: 'search-admin-key'
+          value: search.listAdminKeys().primaryKey
+        }
       ]
     }
     template: {
@@ -537,16 +577,36 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: openAiModelDeployment
             }
             {
+              name: 'AZURE_OPENAI_API_KEY'
+              secretRef: 'openai-api-key'
+            }
+            {
               name: 'AZURE_AI_SEARCH_ENDPOINT'
               value: 'https://${search.name}.search.windows.net'
+            }
+            {
+              name: 'AZURE_AI_SEARCH_KEY'
+              secretRef: 'search-admin-key'
             }
             {
               name: 'AZURE_CONTENT_SAFETY_ENDPOINT'
               value: contentSafety.properties.endpoint
             }
             {
+              name: 'AZURE_CONTENT_SAFETY_KEY'
+              secretRef: 'content-safety-key'
+            }
+            {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
               secretRef: 'appinsights-connection-string'
+            }
+            {
+              name: 'GITHUB_TOKEN'
+              secretRef: 'github-token'
+            }
+            {
+              name: 'GITHUB_WEBHOOK_SECRET'
+              secretRef: 'github-webhook-secret'
             }
             {
               name: 'KEY_VAULT_URL'
@@ -600,9 +660,9 @@ output containerRegistryLoginServer string = containerRegistry.properties.loginS
 output containerAppName string = containerApp.name
 output orchestratorUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 
-// Function App
-output functionAppName string = functionApp.name
-output functionAppUrl string = 'https://${functionApp.properties.defaultHostName}'
+// Function App (conditional)
+output functionAppName string = deployFunctionApp ? functionApp.name : 'not-deployed'
+output functionAppUrl string = deployFunctionApp ? 'https://${functionApp.properties.defaultHostName}' : 'not-deployed'
 
 // Azure OpenAI
 output openAiEndpoint string = openAi.properties.endpoint
@@ -630,7 +690,7 @@ output keyVaultUrl string = keyVault.properties.vaultUri
 
 // Managed Identities
 output orchestratorIdentityClientId string = orchestratorIdentity.properties.clientId
-output functionIdentityClientId string = functionIdentity.properties.clientId
+output functionIdentityClientId string = deployFunctionApp ? functionIdentity.properties.clientId : 'not-deployed'
 
 // Storage
-output storageAccountName string = storageAccount.name
+output storageAccountName string = deployFunctionApp ? storageAccount.name : 'not-deployed'

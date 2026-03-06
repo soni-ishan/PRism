@@ -36,7 +36,7 @@ param(
     [string]$Location = "eastus2",
     
     [Parameter()]
-    [string]$ParametersFile = "$PSScriptRoot\parameters.json",
+    [string]$ParametersFile = "$PSScriptRoot\..\bicep\parameters.json",
     
     [Parameter()]
     [switch]$SkipInfrastructure,
@@ -52,9 +52,9 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$BicepTemplate = "$PSScriptRoot\main.bicep"
+$BicepTemplate = "$PSScriptRoot\..\bicep\main.bicep"
 $DeploymentName = "prism-deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-$ProjectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$ProjectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
 
 # ═══════════════════════════════════════════════════════════════
 # Helper Functions
@@ -62,24 +62,24 @@ $ProjectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "`n═══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "`n---------------------------------------------------------------" -ForegroundColor Cyan
     Write-Host "  $Message" -ForegroundColor Cyan
-    Write-Host "═══════════════════════════════════════════════════════════════`n" -ForegroundColor Cyan
+    Write-Host "---------------------------------------------------------------`n" -ForegroundColor Cyan
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
 function Write-Info {
     param([string]$Message)
-    Write-Host "ℹ $Message" -ForegroundColor Yellow
+    Write-Host "[INFO] $Message" -ForegroundColor Yellow
 }
 
 function Write-Error-Custom {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
 function Test-Command {
@@ -116,14 +116,12 @@ if (-not $SkipDocker) {
     Write-Success "Docker is installed"
     
     # Check if Docker is running
-    try {
-        docker ps | Out-Null
-        Write-Success "Docker daemon is running"
-    }
-    catch {
+    docker ps 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
         Write-Error-Custom "Docker daemon is not running. Please start Docker Desktop."
         exit 1
     }
+    Write-Success "Docker daemon is running"
 }
 
 # Check Python
@@ -165,9 +163,15 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-$account = az account show --output json | ConvertFrom-Json
-Write-Success "Logged in as: $($account.user.name)"
-Write-Info "Subscription: $($account.name) ($($account.id))"
+try {
+    $account = az account show --output json | ConvertFrom-Json
+    Write-Success "Logged in as: $($account.user.name)"
+    Write-Info "Subscription: $($account.name) ($($account.id))"
+}
+catch {
+    Write-Error-Custom "Failed to parse Azure account information: $($_.Exception.Message)"
+    exit 1
+}
 
 # ═══════════════════════════════════════════════════════════════
 # Create Resource Group
@@ -197,22 +201,89 @@ if (-not $SkipInfrastructure) {
     Write-Step "Step 4: Deploying Azure Infrastructure"
     Write-Info "This will take 10-15 minutes..."
     Write-Info "Deployment name: $DeploymentName"
-    
+
     $deploymentStartTime = Get-Date
-    
-    az deployment group create `
-        --resource-group $ResourceGroupName `
-        --name $DeploymentName `
-        --template-file $BicepTemplate `
-        --parameters $ParametersFile `
-        --parameters location=$Location `
-        --output table
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error-Custom "Infrastructure deployment failed"
-        exit 1
+
+    Write-Info "Starting infrastructure deployment (capturing output)..."
+    try {
+        $deployResult = & az deployment group create `
+            --resource-group $ResourceGroupName `
+            --name $DeploymentName `
+            --template-file $BicepTemplate `
+            --parameters $ParametersFile `
+            --parameters location=$Location `
+            --output json 2>&1
+        $deployExit = $LASTEXITCODE
     }
-    
+    catch {
+        $deployResult = $_.Exception.Message
+        $deployExit = 1
+    }
+
+    if ($deployExit -ne 0) {
+        if ($deployResult -is [System.Array]) { $deployText = ($deployResult -join "`n") } else { $deployText = [string]$deployResult }
+
+        if ($deployText -match "MANIFEST_UNKNOWN" -or $deployText -match "manifest tagged" -or $deployText -match "ContainerAppOperationError") {
+            Write-Info "Container App provisioning failed due to image missing in ACR."
+            Write-Info "Will continue to build/push the Docker image and then update the Container App to the pushed image."
+        }
+        elseif ($deployText -match "Additional quota" -or $deployText -match "Dynamic VMs" -or $deployText -match "Unauthorized") {
+            Write-Error-Custom "Infrastructure deployment failed due to quota/authorization issues."
+            Write-Info "Error details:"
+            Write-Host $deployText -ForegroundColor Yellow
+            Write-Info "Please check your subscription quotas and role permissions, then retry."
+            exit 1
+        }
+        else {
+            Write-Error-Custom "Infrastructure deployment failed"
+            Write-Info "Error details:"
+            Write-Host $deployText -ForegroundColor Yellow
+
+            Write-Info "Retrieving deployment operations for more details..."
+            try {
+                $opsRaw = & az deployment operation group list --resource-group $ResourceGroupName --name $DeploymentName --output json 2>&1
+                $opsExit = $LASTEXITCODE
+            }
+            catch {
+                $opsRaw = $_.Exception.Message
+                $opsExit = 1
+            }
+
+            if ($opsExit -eq 0) {
+                try {
+                    $ops = $opsRaw | ConvertFrom-Json
+                    $failedOps = $ops | Where-Object { $_.properties.provisioningState -ne 'Succeeded' }
+                    if ($failedOps -and $failedOps.Count -gt 0) {
+                        Write-Info "Failed operations:"
+                        foreach ($op in $failedOps) {
+                            $resType = $op.properties.targetResource.resourceType
+                            $resName = $op.properties.targetResource.resourceName
+                            Write-Host "- $resType : $resName" -ForegroundColor Yellow
+                            if ($op.properties.statusMessage) {
+                                $msg = $op.properties.statusMessage
+                                try { $msgJson = $msg | ConvertTo-Json -Compress; Write-Host $msgJson -ForegroundColor Yellow }
+                                catch { Write-Host $msg -ForegroundColor Yellow }
+                            }
+                        }
+                    }
+                    else {
+                        Write-Info "No failed operations found in deployment operation list."
+                        Write-Host $opsRaw -ForegroundColor Yellow
+                    }
+                }
+                catch {
+                    Write-Host $opsRaw -ForegroundColor Yellow
+                }
+            }
+            else {
+                Write-Host $opsRaw -ForegroundColor Yellow
+            }
+
+            Write-Info "If the error mentions missing image, run the script again to build/push the Docker image and then update the Container App."
+            exit 1
+        }
+    }
+
     $deploymentDuration = (Get-Date) - $deploymentStartTime
     Write-Success "Infrastructure deployed in $($deploymentDuration.TotalMinutes.ToString('0.0')) minutes"
 }
@@ -225,6 +296,24 @@ else {
 # ═══════════════════════════════════════════════════════════════
 
 Write-Step "Step 5: Retrieving Deployment Outputs"
+
+# When SkipInfrastructure is used, the current $DeploymentName won't exist.
+# Fall back to the latest successful deployment in the resource group.
+if ($SkipInfrastructure) {
+    Write-Info "Looking up latest successful deployment in '$ResourceGroupName'..."
+    $latestDeploy = az deployment group list `
+        --resource-group $ResourceGroupName `
+        --filter "provisioningState eq 'Succeeded'" `
+        --query "sort_by([?starts_with(name,'prism-deployment-')], &properties.timestamp)[-1].name" `
+        --output tsv
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($latestDeploy)) {
+        Write-Error-Custom "Could not find a previous successful deployment in '$ResourceGroupName'."
+        Write-Info "Run a full deployment first (without -SkipInfrastructure)."
+        exit 1
+    }
+    $DeploymentName = $latestDeploy
+    Write-Info "Using existing deployment: $DeploymentName"
+}
 
 $outputs = az deployment group show `
     --resource-group $ResourceGroupName `
@@ -270,7 +359,7 @@ if (-not $SkipDocker) {
     docker build `
         --platform linux/amd64 `
         -t $imageName `
-        -f "$PSScriptRoot\Dockerfile.orchestrator" `
+        -f "$PSScriptRoot\..\docker\Dockerfile.orchestrator" `
         $ProjectRoot
     
     if ($LASTEXITCODE -ne 0) {
@@ -353,13 +442,21 @@ if (Test-Path $setupScript) {
         --output tsv
     $env:AZURE_AI_SEARCH_KEY = $searchKey
     
-    python $setupScript
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "AI Search index configured"
+    try {
+        python $setupScript
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "AI Search index configured"
+        }
+        else {
+            Write-Info "AI Search index creation had issues. You may need to run setup.py manually."
+        }
     }
-    else {
-        Write-Info "AI Search index creation had issues. You may need to run setup.py manually."
+    finally {
+        # Clear sensitive search key from environment
+        Remove-Item Env:\AZURE_AI_SEARCH_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\AZURE_AI_SEARCH_ENDPOINT -ErrorAction SilentlyContinue
+        $searchKey = $null
     }
 }
 else {
@@ -454,7 +551,7 @@ Log Analytics:         $($outputs.logAnalyticsName.value)
    https://portal.azure.com/#@/resource/subscriptions/$($account.id)/resourceGroups/$ResourceGroupName
 
 5. View Application Insights:
-   https://portal.azure.com/#@/resource$($outputs.appInsightsName.value)
+   https://portal.azure.com/#@/resource/subscriptions/$($account.id)/resourceGroups/$ResourceGroupName/providers/Microsoft.Insights/components/$($outputs.appInsightsName.value)
 
 ═══════════════════════════════════════════════════════════════
 

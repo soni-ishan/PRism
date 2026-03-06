@@ -170,6 +170,9 @@ prism/
 ├── vscode_extension/               # PRism Confidence Sidebar (TypeScript)
 ├── foundry/
 │   └── deployment_config/          # Azure Foundry governance config
+│       ├── bicep/                  # Bicep/ARM IaC templates
+│       ├── scripts/                # Deploy & cleanup scripts
+│       └── docker/                 # Dockerfile & Compose
 ├── docs/
 │   ├── architecture_diagram.md     # Mermaid system diagram
 │   └── demo_script.md              # 2-minute demo storyboard

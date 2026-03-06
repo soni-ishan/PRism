@@ -95,7 +95,7 @@ az account set --subscription "<YOUR_SUBSCRIPTION_ID>"
 ```
 
 ### 3. Configure Deployment Parameters
-Edit `foundry/deployment_config/parameters.json`:
+Edit `foundry/deployment_config/bicep/parameters.json`:
 ```json
 {
   "projectName": "prism",
@@ -110,7 +110,7 @@ Edit `foundry/deployment_config/parameters.json`:
 
 ### 4. Run the Deployment Script
 ```powershell
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 That's it! The script will:
@@ -143,7 +143,7 @@ Write-Host "Webhook Secret: $webhookSecret"
 ```
 
 #### 1.3 Edit Parameters File
-Open `foundry/deployment_config/parameters.json` and fill in your values:
+Open `foundry/deployment_config/bicep/parameters.json` and fill in your values:
 ```json
 {
   "projectName": "prism",
@@ -189,8 +189,8 @@ az group create `
 ```powershell
 az deployment group create `
   --resource-group $resourceGroup `
-  --template-file foundry/deployment_config/main.bicep `
-  --parameters foundry/deployment_config/parameters.json `
+  --template-file foundry/deployment_config/bicep/main.bicep `
+  --parameters foundry/deployment_config/bicep/parameters.json `
   --parameters location=$location `
   --verbose
 ```
@@ -245,7 +245,7 @@ az acr login --name $acrName
 docker build `
   --platform linux/amd64 `
   -t ${acrLoginServer}/prism-orchestrator:latest `
-  -f foundry/deployment_config/Dockerfile.orchestrator `
+  -f foundry/deployment_config/docker/Dockerfile.orchestrator `
   .
 
 docker push ${acrLoginServer}/prism-orchestrator:latest

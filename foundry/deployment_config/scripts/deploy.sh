@@ -19,10 +19,10 @@ set -euo pipefail
 RESOURCE_GROUP_NAME="${RESOURCE_GROUP_NAME:-rg-prism-prod}"
 LOCATION="${LOCATION:-eastus2}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PARAMETERS_FILE="${SCRIPT_DIR}/parameters.json"
-BICEP_TEMPLATE="${SCRIPT_DIR}/main.bicep"
+PARAMETERS_FILE="${SCRIPT_DIR}/../bicep/parameters.json"
+BICEP_TEMPLATE="${SCRIPT_DIR}/../bicep/main.bicep"
 DEPLOYMENT_NAME="prism-deployment-$(date +%Y%m%d-%H%M%S)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 SKIP_INFRASTRUCTURE=false
 SKIP_DOCKER=false
 
@@ -266,7 +266,7 @@ if [ "$SKIP_DOCKER" = false ]; then
     docker build \
         --platform linux/amd64 \
         -t "$IMAGE_NAME" \
-        -f "${SCRIPT_DIR}/Dockerfile.orchestrator" \
+        -f "${SCRIPT_DIR}/../docker/Dockerfile.orchestrator" \
         "$PROJECT_ROOT"
     
     print_success "Docker image built"

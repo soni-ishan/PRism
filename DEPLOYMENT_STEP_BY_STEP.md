@@ -144,7 +144,7 @@ openssl rand -base64 32
 
 ```powershell
 # Navigate to the deployment config directory
-cd c:\Users\spx437\Desktop\PRism\foundry\deployment_config
+cd c:\Users\spx437\Desktop\PRism\foundry\deployment_config\bicep
 
 # Copy the example parameters file
 cp parameters.example.json parameters.json
@@ -212,7 +212,7 @@ Get-Content parameters.json | ConvertFrom-Json
 cd c:\Users\spx437\Desktop\PRism
 
 # Run the deployment script
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 **What happens:**
@@ -627,24 +627,24 @@ az containerapp revision restart `
 
 ```powershell
 # Skip infrastructure deployment
-.\foundry\deployment_config\deploy.ps1 -SkipInfrastructure
+.\foundry\deployment_config\scripts\deploy.ps1 -SkipInfrastructure
 ```
 
 ### Update Infrastructure Only
 
 ```powershell
 # Skip Docker build
-.\foundry\deployment_config\deploy.ps1 -SkipDocker
+.\foundry\deployment_config\scripts\deploy.ps1 -SkipDocker
 ```
 
 ### Full Redeployment
 
 ```powershell
 # Delete resource group
-.\foundry\deployment_config\cleanup.ps1 -ResourceGroupName "rg-prism-prod"
+.\foundry\deployment_config\scripts\cleanup.ps1 -ResourceGroupName "rg-prism-prod"
 
 # Deploy again
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 ---

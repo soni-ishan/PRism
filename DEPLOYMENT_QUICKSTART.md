@@ -6,10 +6,10 @@
 
 ```powershell
 # 1. Edit parameters
-code foundry/deployment_config/parameters.json
+code foundry/deployment_config/bicep/parameters.json
 
 # 2. Deploy everything
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 That's it! ☕ Grab coffee while Azure deploys (15-20 minutes).
@@ -47,19 +47,19 @@ That's it! ☕ Grab coffee while Azure deploys (15-20 minutes).
 
 ### Full Deployment
 ```powershell
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 ### Custom Resource Group
 ```powershell
-.\foundry\deployment_config\deploy.ps1 `
+.\foundry\deployment_config\scripts\deploy.ps1 `
   -ResourceGroupName "rg-prism-dev" `
   -Location "westus2"
 ```
 
 ### Update Apps Only (skip infrastructure)
 ```powershell
-.\foundry\deployment_config\deploy.ps1 -SkipInfrastructure
+.\foundry\deployment_config\scripts\deploy.ps1 -SkipInfrastructure
 ```
 
 ---
@@ -128,7 +128,7 @@ az containerapp revision restart `
 
 ```powershell
 # Delete everything (IRREVERSIBLE!)
-.\foundry\deployment_config\cleanup.ps1 -ResourceGroupName "rg-prism-prod"
+.\foundry\deployment_config\scripts\cleanup.ps1 -ResourceGroupName "rg-prism-prod"
 ```
 
 ---
@@ -176,7 +176,7 @@ cp .env.template .env
 # Edit .env with Azure endpoints from deployment
 
 # Run with Docker Compose
-cd foundry/deployment_config
+cd foundry/deployment_config/docker
 docker-compose up
 
 # Or run directly
@@ -232,7 +232,7 @@ After deployment, verify:
 
 **Ready to deploy? Run:**
 ```powershell
-.\foundry\deployment_config\deploy.ps1
+.\foundry\deployment_config\scripts\deploy.ps1
 ```
 
 **Questions?** Check [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for details.

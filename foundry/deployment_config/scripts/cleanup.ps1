@@ -20,24 +20,30 @@ param(
     [string]$ResourceGroupName,
     
     [Parameter()]
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter()]
+    [string]$PurgeCognitiveName,
+
+    [Parameter()]
+    [string]$PurgeCognitiveLocation
 )
 
 $ErrorActionPreference = "Stop"
 
 function Write-Warning-Custom {
     param([string]$Message)
-    Write-Host "⚠ $Message" -ForegroundColor Yellow
+    Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
 function Write-Error-Custom {
     param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
+    Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
+    Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -71,6 +77,35 @@ Write-Host "Resources in '$ResourceGroupName':" -ForegroundColor Cyan
 az resource list --resource-group $ResourceGroupName --output table
 Write-Host ""
 
+# Optional: purge soft-deleted Cognitive Services account
+if ($PurgeCognitiveName) {
+    if (-not $PurgeCognitiveLocation) {
+        Write-Warning-Custom "Purge location not provided; defaulting to 'eastus2'."
+        $PurgeCognitiveLocation = 'eastus2'
+    }
+
+    Write-Warning-Custom "About to purge soft-deleted Cognitive Services account: $PurgeCognitiveName in $PurgeCognitiveLocation"
+    $confirmPurge = Read-Host "Type 'PURGE' to confirm purging the deleted Cognitive Services account (irreversible)"
+    if ($confirmPurge -eq 'PURGE') {
+        try {
+            Write-Host "Purging Cognitive Services account..." -ForegroundColor Yellow
+            az cognitiveservices account purge --name $PurgeCognitiveName --resource-group $ResourceGroupName --location $PurgeCognitiveLocation --yes
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Purged soft-deleted Cognitive Services account: $PurgeCognitiveName"
+            }
+            else {
+                Write-Warning-Custom "Purge command exited with code $LASTEXITCODE; check Azure Portal for status."
+            }
+        }
+        catch {
+            Write-Warning-Custom "Purge failed: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Write-Host "Purge skipped by user." -ForegroundColor Yellow
+    }
+}
+
 # Confirmation
 if (-not $Force) {
     Write-Warning-Custom "This will DELETE the resource group '$ResourceGroupName' and ALL its resources!"
@@ -98,7 +133,7 @@ Write-Host "You can check the status in the Azure Portal or by running:"
 Write-Host "  az group show --name $ResourceGroupName" -ForegroundColor Cyan
 
 # Clean up local config files
-$ProjectRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$ProjectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
 $azureEnvFile = Join-Path $ProjectRoot ".env.azure"
 
 if (Test-Path $azureEnvFile) {

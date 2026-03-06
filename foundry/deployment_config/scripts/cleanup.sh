@@ -119,7 +119,7 @@ echo -e "  ${CYAN}az group show --name ${RESOURCE_GROUP_NAME}${NC}"
 
 # Clean up local config files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 AZURE_ENV_FILE="${PROJECT_ROOT}/.env.azure"
 
 if [ -f "$AZURE_ENV_FILE" ]; then
