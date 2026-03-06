@@ -246,12 +246,12 @@ def push_incident(incident: dict[str, Any]) -> bool:
 
     Returns True on success, False on failure.
     """
-    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+    endpoint = os.getenv("AZURE_AI_SEARCH_ENDPOINT") or os.getenv("AZURE_SEARCH_ENDPOINT")
     if not endpoint:
-        logger.error("AZURE_SEARCH_ENDPOINT not set — cannot push incident")
+        logger.error("AZURE_AI_SEARCH_ENDPOINT not set — cannot push incident")
         return False
 
-    key = os.getenv("AZURE_SEARCH_KEY")
+    key = os.getenv("AZURE_AI_SEARCH_KEY") or os.getenv("AZURE_SEARCH_KEY")
 
     try:
         credential = AzureKeyCredential(key) if key else DefaultAzureCredential()

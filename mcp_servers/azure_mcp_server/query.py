@@ -38,11 +38,11 @@ _SELECT_FIELDS = [
 
 def _get_search_client() -> SearchClient:
     """Create an authenticated SearchClient for the incidents index."""
-    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-    key = os.getenv("AZURE_SEARCH_KEY")
+    endpoint = os.getenv("AZURE_AI_SEARCH_ENDPOINT") or os.getenv("AZURE_SEARCH_ENDPOINT")
+    key = os.getenv("AZURE_AI_SEARCH_KEY") or os.getenv("AZURE_SEARCH_KEY")
 
     if not endpoint:
-        raise EnvironmentError("AZURE_SEARCH_ENDPOINT is required")
+        raise EnvironmentError("AZURE_AI_SEARCH_ENDPOINT is required")
 
     credential: Any
     if key:
