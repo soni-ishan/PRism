@@ -208,7 +208,7 @@ cp .env.example .env
 #   - AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
 #   - AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY
 #   - AZURE_FOUNDRY_PROJECT_CONNECTION_STRING
-#   - GITHUB_TOKEN
+#   - GH_PAT
 
 # Setup Azure AI Search with sample incident data (required for History Agent)
 python tests/test_azure_search.py

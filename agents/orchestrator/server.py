@@ -84,7 +84,7 @@ async def analyze(payload: PRPayload):
 
 # ── GitHub Webhook ───────────────────────────────────────────────────
 
-_GITHUB_TOKEN: str | None = os.getenv("GITHUB_TOKEN")
+_GITHUB_TOKEN: str | None = os.getenv("GH_PAT")
 _WEBHOOK_SECRET: str | None = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 
