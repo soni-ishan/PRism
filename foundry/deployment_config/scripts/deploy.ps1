@@ -559,6 +559,10 @@ AZURE_AI_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
 # Azure Content Safety
 AZURE_CONTENT_SAFETY_ENDPOINT=$($outputs.contentSafetyEndpoint.value)
 
+# Log Analytics (Incident Ingestion)
+AZURE_LOG_WORKSPACE_ID=$($outputs.logAnalyticsWorkspaceId.value)
+AZURE_RESOURCE_NAME=$containerAppName
+
 # Application Insights
 APPLICATIONINSIGHTS_CONNECTION_STRING=$($outputs.appInsightsConnectionString.value)
 

@@ -89,11 +89,11 @@ jobs:
           }
           EOF
           
-          # Deploy infrastructure
+          # Deploy infrastructure (Step 1: foundation resources)
           az deployment group create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.DEPLOYMENT_NAME }} \
-            --template-file foundry/deployment_config/bicep/main.bicep \
+            --template-file foundry/deployment_config/bicep/infra.bicep \
             --parameters params.json \
             --output json > deployment-output.json
           
