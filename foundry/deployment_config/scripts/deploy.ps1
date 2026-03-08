@@ -1,14 +1,17 @@
 <#
 .SYNOPSIS
-    Deploys PRism to Azure using Bicep templates
+    Deploys PRism to Azure using a two-step Bicep process
 .DESCRIPTION
     This script automates the complete deployment of PRism to Azure:
-    - Validates prerequisites
-    - Deploys Azure infrastructure via Bicep
-    - Builds and pushes Docker images
-    - Deploys applications
-    - Configures AI Search index
-    - Outputs connection details
+    Step 1: Deploy foundation infrastructure (infra.bicep) - ACR, OpenAI, Search, etc.
+    Step 2: Build and push Docker image to ACR
+    Step 3: Deploy Container App (app.bicep) - references existing infra + pushed image
+    Step 4: Configure AI Search index and Azure Functions
+    
+    The two-step Bicep approach avoids the chicken-and-egg problem where the
+    Container App tries to pull an image from ACR before it has been pushed.
+
+    For local development (no Container App), use deploy-local.ps1 instead.
 .PARAMETER ResourceGroupName
     Name of the Azure resource group (default: rg-prism-prod)
 .PARAMETER Location
@@ -16,7 +19,7 @@
 .PARAMETER ParametersFile
     Path to parameters.json file (default: ./parameters.json)
 .PARAMETER SkipInfrastructure
-    Skip infrastructure deployment (useful for app-only updates)
+    Skip Step 1 infrastructure deployment (useful for app-only updates)
 .PARAMETER SkipDocker
     Skip Docker build and push (useful for infrastructure-only updates)
 .EXAMPLE
@@ -24,7 +27,7 @@
 .EXAMPLE
     .\deploy.ps1 -ResourceGroupName "rg-prism-dev" -Location "eastus"
 .EXAMPLE
-    .\deploy.ps1 -SkipInfrastructure -SkipDocker
+    .\deploy.ps1 -SkipInfrastructure
 #>
 
 [CmdletBinding()]
@@ -45,20 +48,22 @@ param(
     [switch]$SkipDocker
 )
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Configuration
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$BicepTemplate = "$PSScriptRoot\..\bicep\main.bicep"
-$DeploymentName = "prism-deployment-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+$InfraBicepTemplate = "$PSScriptRoot\..\bicep\infra.bicep"
+$AppBicepTemplate = "$PSScriptRoot\..\bicep\app.bicep"
+$InfraDeploymentName = "prism-infra-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+$AppDeploymentName = "prism-app-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $ProjectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Helper Functions
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 function Write-Step {
     param([string]$Message)
@@ -87,9 +92,9 @@ function Test-Command {
     $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Pre-flight Checks
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 Write-Step "PRism Azure Deployment Script"
 Write-Host "Starting deployment at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n"
@@ -139,16 +144,22 @@ if (-not (Test-Path $ParametersFile)) {
 }
 Write-Success "Parameters file found"
 
-# Check Bicep template
-if (-not (Test-Path $BicepTemplate)) {
-    Write-Error-Custom "Bicep template not found: $BicepTemplate"
+# Check Bicep templates
+if (-not (Test-Path $InfraBicepTemplate)) {
+    Write-Error-Custom "Infra Bicep template not found: $InfraBicepTemplate"
     exit 1
 }
-Write-Success "Bicep template found"
+Write-Success "Infra Bicep template found"
 
-# ═══════════════════════════════════════════════════════════════
+if (-not (Test-Path $AppBicepTemplate)) {
+    Write-Error-Custom "App Bicep template not found: $AppBicepTemplate"
+    exit 1
+}
+Write-Success "App Bicep template found"
+
+# ===============================================================
 # Azure Login & Subscription
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 Write-Step "Step 2: Validating Azure Authentication"
 
@@ -173,9 +184,9 @@ catch {
     exit 1
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Create Resource Group
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 Write-Step "Step 3: Creating Resource Group"
 
@@ -193,14 +204,14 @@ else {
     Write-Success "Resource group created"
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Deploy Infrastructure
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 if (-not $SkipInfrastructure) {
-    Write-Step "Step 4: Deploying Azure Infrastructure"
-    Write-Info "This will take 10-15 minutes..."
-    Write-Info "Deployment name: $DeploymentName"
+    Write-Step "Step 4: Deploying Foundation Infrastructure (Bicep Step 1 of 2)"
+    Write-Info "Deploying ACR, OpenAI, AI Search, Key Vault, identities, etc. (no Container App yet)..."
+    Write-Info "Deployment name: $InfraDeploymentName"
 
     $deploymentStartTime = Get-Date
 
@@ -208,8 +219,8 @@ if (-not $SkipInfrastructure) {
     try {
         $deployResult = & az deployment group create `
             --resource-group $ResourceGroupName `
-            --name $DeploymentName `
-            --template-file $BicepTemplate `
+            --name $InfraDeploymentName `
+            --template-file $InfraBicepTemplate `
             --parameters $ParametersFile `
             --parameters location=$Location `
             --output json 2>&1
@@ -223,11 +234,7 @@ if (-not $SkipInfrastructure) {
     if ($deployExit -ne 0) {
         if ($deployResult -is [System.Array]) { $deployText = ($deployResult -join "`n") } else { $deployText = [string]$deployResult }
 
-        if ($deployText -match "MANIFEST_UNKNOWN" -or $deployText -match "manifest tagged" -or $deployText -match "ContainerAppOperationError") {
-            Write-Info "Container App provisioning failed due to image missing in ACR."
-            Write-Info "Will continue to build/push the Docker image and then update the Container App to the pushed image."
-        }
-        elseif ($deployText -match "Additional quota" -or $deployText -match "Dynamic VMs" -or $deployText -match "Unauthorized") {
+        if ($deployText -match "Additional quota" -or $deployText -match "Dynamic VMs" -or $deployText -match "Unauthorized") {
             Write-Error-Custom "Infrastructure deployment failed due to quota/authorization issues."
             Write-Info "Error details:"
             Write-Host $deployText -ForegroundColor Yellow
@@ -241,7 +248,7 @@ if (-not $SkipInfrastructure) {
 
             Write-Info "Retrieving deployment operations for more details..."
             try {
-                $opsRaw = & az deployment operation group list --resource-group $ResourceGroupName --name $DeploymentName --output json 2>&1
+                $opsRaw = & az deployment operation group list --resource-group $ResourceGroupName --name $InfraDeploymentName --output json 2>&1
                 $opsExit = $LASTEXITCODE
             }
             catch {
@@ -279,45 +286,44 @@ if (-not $SkipInfrastructure) {
                 Write-Host $opsRaw -ForegroundColor Yellow
             }
 
-            Write-Info "If the error mentions missing image, run the script again to build/push the Docker image and then update the Container App."
             exit 1
         }
     }
 
     $deploymentDuration = (Get-Date) - $deploymentStartTime
-    Write-Success "Infrastructure deployed in $($deploymentDuration.TotalMinutes.ToString('0.0')) minutes"
+    Write-Success "Foundation infrastructure deployed in $($deploymentDuration.TotalMinutes.ToString('0.0')) minutes"
 }
 else {
     Write-Info "Skipping infrastructure deployment (--SkipInfrastructure flag set)"
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Get Deployment Outputs
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
-Write-Step "Step 5: Retrieving Deployment Outputs"
+Write-Step "Step 5: Retrieving Infrastructure Outputs"
 
-# When SkipInfrastructure is used, the current $DeploymentName won't exist.
-# Fall back to the latest successful deployment in the resource group.
+# When SkipInfrastructure is used, the current $InfraDeploymentName won't exist.
+# Fall back to the latest successful infra deployment in the resource group.
 if ($SkipInfrastructure) {
-    Write-Info "Looking up latest successful deployment in '$ResourceGroupName'..."
+    Write-Info "Looking up latest successful infra deployment in '$ResourceGroupName'..."
     $latestDeploy = az deployment group list `
         --resource-group $ResourceGroupName `
         --filter "provisioningState eq 'Succeeded'" `
-        --query "sort_by([?starts_with(name,'prism-deployment-')], &properties.timestamp)[-1].name" `
+        --query "sort_by([?starts_with(name,'prism-infra-')], &properties.timestamp)[-1].name" `
         --output tsv
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($latestDeploy)) {
-        Write-Error-Custom "Could not find a previous successful deployment in '$ResourceGroupName'."
+        Write-Error-Custom "Could not find a previous successful infra deployment in '$ResourceGroupName'."
         Write-Info "Run a full deployment first (without -SkipInfrastructure)."
         exit 1
     }
-    $DeploymentName = $latestDeploy
-    Write-Info "Using existing deployment: $DeploymentName"
+    $InfraDeploymentName = $latestDeploy
+    Write-Info "Using existing infra deployment: $InfraDeploymentName"
 }
 
 $outputs = az deployment group show `
     --resource-group $ResourceGroupName `
-    --name $DeploymentName `
+    --name $InfraDeploymentName `
     --query "properties.outputs" `
     --output json | ConvertFrom-Json
 
@@ -328,16 +334,14 @@ if ($LASTEXITCODE -ne 0) {
 
 $acrName = $outputs.containerRegistryName.value
 $acrLoginServer = $outputs.containerRegistryLoginServer.value
-$containerAppName = $outputs.containerAppName.value
 $functionAppName = $outputs.functionAppName.value
-$orchestratorUrl = $outputs.orchestratorUrl.value
 $searchName = $outputs.aiSearchName.value
 
-Write-Success "Retrieved deployment outputs"
+Write-Success "Retrieved infrastructure outputs"
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Build and Push Docker Image
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
 if (-not $SkipDocker) {
     Write-Step "Step 6: Building and Pushing Docker Image"
@@ -376,30 +380,93 @@ if (-not $SkipDocker) {
         exit 1
     }
     Write-Success "Docker image pushed to ACR"
-    
-    # Update Container App
-    Write-Info "Updating Container App with new image..."
-    az containerapp update `
-        --name $containerAppName `
-        --resource-group $ResourceGroupName `
-        --image $imageName `
-        --output none
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error-Custom "Failed to update Container App"
-        exit 1
-    }
-    Write-Success "Container App updated"
 }
 else {
     Write-Info "Skipping Docker build and push (--SkipDocker flag set)"
 }
 
-# ═══════════════════════════════════════════════════════════════
-# Deploy Azure Functions
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
+# Deploy Container App (Step 2 of 2)
+# ===============================================================
 
-Write-Step "Step 7: Deploying Azure Functions"
+Write-Step "Step 7: Deploying Container App (Bicep Step 2 of 2)"
+Write-Info "Now that the image is in ACR, deploying the Container App..."
+Write-Info "Deployment name: $AppDeploymentName"
+
+$appDeployStartTime = Get-Date
+
+try {
+    $appDeployResult = & az deployment group create `
+        --resource-group $ResourceGroupName `
+        --name $AppDeploymentName `
+        --template-file $AppBicepTemplate `
+        --parameters $ParametersFile `
+        --parameters location=$Location `
+        --output json 2>&1
+    $appDeployExit = $LASTEXITCODE
+}
+catch {
+    $appDeployResult = $_.Exception.Message
+    $appDeployExit = 1
+}
+
+if ($appDeployExit -ne 0) {
+    if ($appDeployResult -is [System.Array]) { $appDeployText = ($appDeployResult -join "`n") } else { $appDeployText = [string]$appDeployResult }
+    Write-Error-Custom "Container App deployment failed"
+    Write-Info "Error details:"
+    Write-Host $appDeployText -ForegroundColor Yellow
+
+    Write-Info "Retrieving deployment operations for more details..."
+    try {
+        $opsRaw = & az deployment operation group list --resource-group $ResourceGroupName --name $AppDeploymentName --output json 2>&1
+        $opsExit = $LASTEXITCODE
+    }
+    catch {
+        $opsRaw = $_.Exception.Message
+        $opsExit = 1
+    }
+
+    if ($opsExit -eq 0) {
+        try {
+            $ops = $opsRaw | ConvertFrom-Json
+            $failedOps = $ops | Where-Object { $_.properties.provisioningState -ne 'Succeeded' }
+            if ($failedOps -and $failedOps.Count -gt 0) {
+                Write-Info "Failed operations:"
+                foreach ($op in $failedOps) {
+                    $resType = $op.properties.targetResource.resourceType
+                    $resName = $op.properties.targetResource.resourceName
+                    Write-Host "- $resType : $resName" -ForegroundColor Yellow
+                }
+            }
+        }
+        catch {
+            Write-Host $opsRaw -ForegroundColor Yellow
+        }
+    }
+
+    exit 1
+}
+
+$appDeployDuration = (Get-Date) - $appDeployStartTime
+Write-Success "Container App deployed in $($appDeployDuration.TotalMinutes.ToString('0.0')) minutes"
+
+# Retrieve app outputs
+$appOutputs = az deployment group show `
+    --resource-group $ResourceGroupName `
+    --name $AppDeploymentName `
+    --query "properties.outputs" `
+    --output json | ConvertFrom-Json
+
+$containerAppName = $appOutputs.containerAppName.value
+$orchestratorUrl = $appOutputs.orchestratorUrl.value
+
+Write-Success "Container App is live at: $orchestratorUrl"
+
+# ===============================================================
+# Deploy Azure Functions
+# ===============================================================
+
+Write-Step "Step 8: Deploying Azure Functions"
 
 # Check if func CLI is available
 if (Test-Command "func") {
@@ -423,11 +490,11 @@ else {
     Write-Info "Then run: func azure functionapp publish $functionAppName --python"
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Configure AI Search Index
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
-Write-Step "Step 8: Configuring AI Search Index"
+Write-Step "Step 9: Configuring AI Search Index"
 
 $setupScript = "$ProjectRoot\mcp_servers\azure_mcp_server\setup.py"
 if (Test-Path $setupScript) {
@@ -463,17 +530,18 @@ else {
     Write-Info "Setup script not found. You may need to configure AI Search manually."
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Save Deployment Configuration
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
-Write-Step "Step 9: Saving Deployment Configuration"
+Write-Step "Step 10: Saving Deployment Configuration"
 
 $configFile = "$ProjectRoot\.env.azure"
 $configContent = @"
 # PRism Azure Deployment Configuration
 # Generated on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-# Deployment: $DeploymentName
+# Infra Deployment: $InfraDeploymentName
+# App Deployment: $AppDeploymentName
 
 # Orchestrator
 ORCHESTRATOR_URL=$orchestratorUrl
@@ -504,20 +572,20 @@ AZURE_CLIENT_ID=$($outputs.orchestratorIdentityClientId.value)
 AZURE_RESOURCE_GROUP=$ResourceGroupName
 "@
 
-$configContent | Out-File -FilePath $configFile -Encoding UTF8
+$configContent | Out-File -FilePath $configFile -Encoding ASCII
 Write-Success "Configuration saved to: $configFile"
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Deployment Summary
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
-Write-Step "Deployment Complete! 🎉"
+Write-Step "Deployment Complete!"
 
 Write-Host @"
 
-═══════════════════════════════════════════════════════════════
+===============================================================
                     DEPLOYMENT SUMMARY
-═══════════════════════════════════════════════════════════════
+===============================================================
 
 Resource Group:        $ResourceGroupName
 Location:              $Location
@@ -532,9 +600,9 @@ Key Vault:             $($outputs.keyVaultName.value)
 Application Insights:  $($outputs.appInsightsName.value)
 Log Analytics:         $($outputs.logAnalyticsName.value)
 
-═══════════════════════════════════════════════════════════════
+===============================================================
                         NEXT STEPS
-═══════════════════════════════════════════════════════════════
+===============================================================
 
 1. Test the health endpoint:
    curl $orchestratorUrl/health
@@ -553,10 +621,11 @@ Log Analytics:         $($outputs.logAnalyticsName.value)
 5. View Application Insights:
    https://portal.azure.com/#@/resource/subscriptions/$($account.id)/resourceGroups/$ResourceGroupName/providers/Microsoft.Insights/components/$($outputs.appInsightsName.value)
 
-═══════════════════════════════════════════════════════════════
+===============================================================
 
 Configuration file saved to: $configFile
 
+For local development, use: .\deploy-local.ps1
 For more information, see: DEPLOYMENT_GUIDE.md
 
 "@ -ForegroundColor Green

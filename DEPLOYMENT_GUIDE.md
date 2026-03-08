@@ -187,9 +187,10 @@ az group create `
 
 #### 2.3 Deploy Bicep Template
 ```powershell
+# Step 1: Deploy foundation infrastructure
 az deployment group create `
   --resource-group $resourceGroup `
-  --template-file foundry/deployment_config/bicep/main.bicep `
+  --template-file foundry/deployment_config/bicep/infra.bicep `
   --parameters foundry/deployment_config/bicep/parameters.json `
   --parameters location=$location `
   --verbose

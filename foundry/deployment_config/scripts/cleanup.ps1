@@ -20,13 +20,7 @@ param(
     [string]$ResourceGroupName,
     
     [Parameter()]
-    [switch]$Force,
-
-    [Parameter()]
-    [string]$PurgeCognitiveName,
-
-    [Parameter()]
-    [string]$PurgeCognitiveLocation
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,13 +40,13 @@ function Write-Success {
     Write-Host "[SUCCESS] $Message" -ForegroundColor Green
 }
 
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 # Main Script
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
 
-Write-Host "`n═══════════════════════════════════════════════════════════════" -ForegroundColor Red
+Write-Host "`n===============================================================" -ForegroundColor Red
 Write-Host "  PRism Azure Resource Cleanup" -ForegroundColor Red
-Write-Host "═══════════════════════════════════════════════════════════════`n" -ForegroundColor Red
+Write-Host "===============================================================`n" -ForegroundColor Red
 
 # Check if logged in
 try {
@@ -77,35 +71,6 @@ Write-Host "Resources in '$ResourceGroupName':" -ForegroundColor Cyan
 az resource list --resource-group $ResourceGroupName --output table
 Write-Host ""
 
-# Optional: purge soft-deleted Cognitive Services account
-if ($PurgeCognitiveName) {
-    if (-not $PurgeCognitiveLocation) {
-        Write-Warning-Custom "Purge location not provided; defaulting to 'eastus2'."
-        $PurgeCognitiveLocation = 'eastus2'
-    }
-
-    Write-Warning-Custom "About to purge soft-deleted Cognitive Services account: $PurgeCognitiveName in $PurgeCognitiveLocation"
-    $confirmPurge = Read-Host "Type 'PURGE' to confirm purging the deleted Cognitive Services account (irreversible)"
-    if ($confirmPurge -eq 'PURGE') {
-        try {
-            Write-Host "Purging Cognitive Services account..." -ForegroundColor Yellow
-            az cognitiveservices account purge --name $PurgeCognitiveName --resource-group $ResourceGroupName --location $PurgeCognitiveLocation --yes
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Purged soft-deleted Cognitive Services account: $PurgeCognitiveName"
-            }
-            else {
-                Write-Warning-Custom "Purge command exited with code $LASTEXITCODE; check Azure Portal for status."
-            }
-        }
-        catch {
-            Write-Warning-Custom "Purge failed: $($_.Exception.Message)"
-        }
-    }
-    else {
-        Write-Host "Purge skipped by user." -ForegroundColor Yellow
-    }
-}
-
 # Confirmation
 if (-not $Force) {
     Write-Warning-Custom "This will DELETE the resource group '$ResourceGroupName' and ALL its resources!"
@@ -119,18 +84,199 @@ if (-not $Force) {
     }
 }
 
-# Delete resource group
-Write-Host "`nDeleting resource group '$ResourceGroupName'..." -ForegroundColor Red
+# ===============================================================
+# Purge Soft-Deleted Resources (BEFORE deleting resource group)
+# ===============================================================
+
+Write-Host "`nPurging any previously soft-deleted resources to allow clean redeployment..." -ForegroundColor Cyan
+
+# --- Cognitive Services / Azure OpenAI ---
+try {
+    $deletedAccounts = az cognitiveservices account list-deleted --output json 2>$null | ConvertFrom-Json
+    if ($deletedAccounts) {
+        foreach ($acct in $deletedAccounts) {
+            $acctName = if ($acct.properties.resourceName) { $acct.properties.resourceName } else { $acct.name }
+            $acctLocation = if ($acct.location) { $acct.location } else { 'eastus2' }
+            if ($acctName -match '^prism-') {
+                Write-Host "  Purging Cognitive Services: $acctName" -ForegroundColor Yellow
+                az cognitiveservices account purge --name $acctName --resource-group $ResourceGroupName --location $acctLocation 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $acctName" }
+                else { Write-Warning-Custom "Could not purge $acctName (may require manual purge)" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted Cognitive Services accounts found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted Cognitive Services: $($_.Exception.Message)" }
+
+# --- Key Vaults ---
+try {
+    $deletedVaults = az keyvault list-deleted --output json 2>$null | ConvertFrom-Json
+    if ($deletedVaults) {
+        foreach ($vault in $deletedVaults) {
+            $vaultName = $vault.name
+            if ($vaultName -match '^prism-') {
+                Write-Host "  Purging Key Vault: $vaultName" -ForegroundColor Yellow
+                az keyvault purge --name $vaultName 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $vaultName" }
+                else { Write-Warning-Custom "Could not purge $vaultName (purge protection may be enabled)" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted Key Vaults found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted Key Vaults: $($_.Exception.Message)" }
+
+# --- API Management Services ---
+try {
+    $deletedApims = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.ApiManagement/deletedservices?api-version=2022-08-01" --output json 2>$null | ConvertFrom-Json
+    if ($deletedApims.value) {
+        foreach ($apim in $deletedApims.value) {
+            $apimName = $apim.name
+            $apimLocation = $apim.properties.serviceId -replace '.*/', ''
+            if ($apimName -match '^prism-') {
+                Write-Host "  Purging API Management: $apimName" -ForegroundColor Yellow
+                az rest --method DELETE --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.ApiManagement/locations/$($apim.location)/deletedservices/$($apimName)?api-version=2022-08-01" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $apimName" }
+                else { Write-Warning-Custom "Could not purge $apimName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted API Management services found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted API Management: $($_.Exception.Message)" }
+
+# --- App Configuration Stores ---
+try {
+    $deletedAppConfigs = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.AppConfiguration/deletedConfigurationStores?api-version=2023-03-01" --output json 2>$null | ConvertFrom-Json
+    if ($deletedAppConfigs.value) {
+        foreach ($cfg in $deletedAppConfigs.value) {
+            $cfgName = $cfg.name
+            $cfgLocation = $cfg.properties.location
+            if ($cfgName -match '^prism-') {
+                Write-Host "  Purging App Configuration: $cfgName" -ForegroundColor Yellow
+                az rest --method POST --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.AppConfiguration/locations/$cfgLocation/deletedConfigurationStores/$cfgName/purge?api-version=2023-03-01" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $cfgName" }
+                else { Write-Warning-Custom "Could not purge $cfgName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted App Configuration stores found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted App Configuration: $($_.Exception.Message)" }
+
+# --- Azure AI Search Services ---
+try {
+    $deletedSearchSvcs = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.Search/deletedSearchServices?api-version=2024-06-01-preview" --output json 2>$null | ConvertFrom-Json
+    if ($deletedSearchSvcs.value) {
+        foreach ($svc in $deletedSearchSvcs.value) {
+            $svcName = $svc.name
+            if ($svcName -match '^prism-') {
+                Write-Host "  Purging AI Search: $svcName" -ForegroundColor Yellow
+                az rest --method DELETE --url "$($svc.id)?api-version=2024-06-01-preview" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $svcName" }
+                else { Write-Warning-Custom "Could not purge $svcName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted AI Search services found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted AI Search: $($_.Exception.Message)" }
+
+# --- Azure Machine Learning Workspaces ---
+try {
+    $deletedWorkspaces = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.MachineLearningServices/deletedWorkspaces?api-version=2024-04-01" --output json 2>$null | ConvertFrom-Json
+    if ($deletedWorkspaces.value) {
+        foreach ($ws in $deletedWorkspaces.value) {
+            $wsName = $ws.name
+            if ($wsName -match '^prism-') {
+                Write-Host "  Purging ML Workspace: $wsName" -ForegroundColor Yellow
+                az rest --method POST --url "$($ws.id)/purge?api-version=2024-04-01" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $wsName" }
+                else { Write-Warning-Custom "Could not purge $wsName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted ML Workspaces found." }
+}
+catch { Write-Warning-Custom "Could not check soft-deleted ML Workspaces: $($_.Exception.Message)" }
+
+Write-Host ""
+
+# ===============================================================
+# Delete Resource Group
+# ===============================================================
+
+Write-Host "Deleting resource group '$ResourceGroupName'..." -ForegroundColor Red
 Write-Host "This may take several minutes...`n"
 
 az group delete `
     --name $ResourceGroupName `
-    --yes `
-    --no-wait
+    --yes
 
-Write-Success "Deletion initiated. Resources are being removed in the background."
-Write-Host "You can check the status in the Azure Portal or by running:"
-Write-Host "  az group show --name $ResourceGroupName" -ForegroundColor Cyan
+if ($LASTEXITCODE -eq 0) {
+    Write-Success "Resource group '$ResourceGroupName' has been deleted."
+}
+else {
+    # Deletion may have been accepted but is still in progress; poll until gone
+    Write-Host "Waiting for resource group deletion to complete..." -ForegroundColor Yellow
+    $maxAttempts = 60
+    $attempt = 0
+    while ($attempt -lt $maxAttempts) {
+        $attempt++
+        $rgCheck = az group exists --name $ResourceGroupName 2>$null
+        if ($rgCheck -eq "false") {
+            Write-Success "Resource group '$ResourceGroupName' has been deleted."
+            break
+        }
+        Write-Host "  Still deleting... (attempt $attempt/$maxAttempts)" -ForegroundColor Yellow
+        Start-Sleep -Seconds 15
+    }
+    if ($attempt -ge $maxAttempts) {
+        Write-Warning-Custom "Timed out waiting for deletion. Check the Azure Portal for status."
+    }
+}
+
+# ===============================================================
+# Post-Deletion Purge (catch resources soft-deleted by the RG delete)
+# ===============================================================
+
+Write-Host "`nPurging any resources soft-deleted during group deletion..." -ForegroundColor Cyan
+
+# Re-check Cognitive Services
+try {
+    $deletedAccounts = az cognitiveservices account list-deleted --output json 2>$null | ConvertFrom-Json
+    if ($deletedAccounts) {
+        foreach ($acct in $deletedAccounts) {
+            $acctName = if ($acct.properties.resourceName) { $acct.properties.resourceName } else { $acct.name }
+            $acctLocation = if ($acct.location) { $acct.location } else { 'eastus2' }
+            if ($acctName -match '^prism-') {
+                Write-Host "  Purging Cognitive Services: $acctName" -ForegroundColor Yellow
+                az cognitiveservices account purge --name $acctName --resource-group $ResourceGroupName --location $acctLocation 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $acctName" }
+                else { Write-Warning-Custom "Could not purge $acctName (may require manual purge)" }
+            }
+        }
+    }
+}
+catch { Write-Warning-Custom "Post-deletion Cognitive Services purge check failed: $($_.Exception.Message)" }
+
+# Re-check Key Vaults
+try {
+    $deletedVaults = az keyvault list-deleted --output json 2>$null | ConvertFrom-Json
+    if ($deletedVaults) {
+        foreach ($vault in $deletedVaults) {
+            $vaultName = $vault.name
+            if ($vaultName -match '^prism-') {
+                Write-Host "  Purging Key Vault: $vaultName" -ForegroundColor Yellow
+                az keyvault purge --name $vaultName 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $vaultName" }
+                else { Write-Warning-Custom "Could not purge $vaultName (purge protection may be enabled)" }
+            }
+        }
+    }
+}
+catch { Write-Warning-Custom "Post-deletion Key Vault purge check failed: $($_.Exception.Message)" }
 
 # Clean up local config files
 $ProjectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
@@ -144,6 +290,6 @@ if (Test-Path $azureEnvFile) {
     }
 }
 
-Write-Host "`n═══════════════════════════════════════════════════════════════" -ForegroundColor Green
+Write-Host "`n===============================================================" -ForegroundColor Green
 Write-Host "  Cleanup Complete" -ForegroundColor Green
-Write-Host "═══════════════════════════════════════════════════════════════`n" -ForegroundColor Green
+Write-Host "===============================================================`n" -ForegroundColor Green

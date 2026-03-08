@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "9958471509594814386"
+      "templateHash": "6496292470172920956"
     }
   },
   "parameters": {
@@ -47,18 +47,6 @@
       "type": "securestring",
       "metadata": {
         "description": "GitHub Webhook Secret (stored in Key Vault)"
-      }
-    },
-    "githubRepoOwner": {
-      "type": "string",
-      "metadata": {
-        "description": "GitHub repository owner/organization"
-      }
-    },
-    "githubRepoName": {
-      "type": "string",
-      "metadata": {
-        "description": "GitHub repository name"
       }
     },
     "openAiModelDeployment": {
@@ -115,7 +103,6 @@
     "functionAppName": "[format('{0}-func', variables('namingPrefix'))]",
     "hostingPlanName": "[format('{0}-plan', variables('namingPrefix'))]",
     "containerAppEnvName": "[format('{0}-env', variables('namingPrefix'))]",
-    "containerAppName": "[format('{0}-orchestrator', variables('namingPrefix'))]",
     "orchestratorIdentityName": "[format('{0}-orchestrator-identity', variables('namingPrefix'))]",
     "functionIdentityName": "[format('{0}-function-identity', variables('namingPrefix'))]"
   },
@@ -563,157 +550,6 @@
       "dependsOn": [
         "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
       ]
-    },
-    {
-      "type": "Microsoft.App/containerApps",
-      "apiVersion": "2023-05-01",
-      "name": "[variables('containerAppName')]",
-      "location": "[parameters('location')]",
-      "tags": "[parameters('tags')]",
-      "identity": {
-        "type": "UserAssigned",
-        "userAssignedIdentities": {
-          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName')))]": {}
-        }
-      },
-      "properties": {
-        "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', variables('containerAppEnvName'))]",
-        "configuration": {
-          "activeRevisionsMode": "Single",
-          "ingress": {
-            "external": true,
-            "targetPort": 8000,
-            "transport": "http",
-            "allowInsecure": false
-          },
-          "registries": [
-            {
-              "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-07-01').loginServer]",
-              "identity": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName'))]"
-            }
-          ],
-          "secrets": [
-            {
-              "name": "appinsights-connection-string",
-              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
-            },
-            {
-              "name": "github-token",
-              "value": "[parameters('githubToken')]"
-            },
-            {
-              "name": "github-webhook-secret",
-              "value": "[parameters('githubWebhookSecret')]"
-            },
-            {
-              "name": "openai-api-key",
-              "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('openAiName')), '2023-05-01').key1]"
-            },
-            {
-              "name": "content-safety-key",
-              "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('contentSafetyName')), '2023-05-01').key1]"
-            },
-            {
-              "name": "search-admin-key",
-              "value": "[listAdminKeys(resourceId('Microsoft.Search/searchServices', variables('searchName')), '2023-11-01').primaryKey]"
-            }
-          ]
-        },
-        "template": {
-          "containers": [
-            {
-              "name": "orchestrator",
-              "image": "[format('{0}/prism-orchestrator:latest', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-07-01').loginServer)]",
-              "resources": {
-                "cpu": "[json('0.5')]",
-                "memory": "1Gi"
-              },
-              "env": [
-                {
-                  "name": "AZURE_OPENAI_ENDPOINT",
-                  "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('openAiName')), '2023-05-01').endpoint]"
-                },
-                {
-                  "name": "AZURE_OPENAI_DEPLOYMENT",
-                  "value": "[parameters('openAiModelDeployment')]"
-                },
-                {
-                  "name": "AZURE_OPENAI_API_KEY",
-                  "secretRef": "openai-api-key"
-                },
-                {
-                  "name": "AZURE_AI_SEARCH_ENDPOINT",
-                  "value": "[format('https://{0}.search.windows.net', variables('searchName'))]"
-                },
-                {
-                  "name": "AZURE_AI_SEARCH_KEY",
-                  "secretRef": "search-admin-key"
-                },
-                {
-                  "name": "AZURE_CONTENT_SAFETY_ENDPOINT",
-                  "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('contentSafetyName')), '2023-05-01').endpoint]"
-                },
-                {
-                  "name": "AZURE_CONTENT_SAFETY_KEY",
-                  "secretRef": "content-safety-key"
-                },
-                {
-                  "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-                  "secretRef": "appinsights-connection-string"
-                },
-                {
-                  "name": "GITHUB_TOKEN",
-                  "secretRef": "github-token"
-                },
-                {
-                  "name": "GITHUB_WEBHOOK_SECRET",
-                  "secretRef": "github-webhook-secret"
-                },
-                {
-                  "name": "KEY_VAULT_URL",
-                  "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri]"
-                },
-                {
-                  "name": "AZURE_CLIENT_ID",
-                  "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName')), '2023-01-31').clientId]"
-                },
-                {
-                  "name": "GITHUB_REPO_OWNER",
-                  "value": "[parameters('githubRepoOwner')]"
-                },
-                {
-                  "name": "GITHUB_REPO_NAME",
-                  "value": "[parameters('githubRepoName')]"
-                }
-              ]
-            }
-          ],
-          "scale": {
-            "minReplicas": 1,
-            "maxReplicas": 10,
-            "rules": [
-              {
-                "name": "http-scale",
-                "http": {
-                  "metadata": {
-                    "concurrentRequests": "10"
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
-        "[resourceId('Microsoft.App/managedEnvironments', variables('containerAppEnvName'))]",
-        "[resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('contentSafetyName'))]",
-        "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts', variables('openAiName'))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName'))]",
-        "[resourceId('Microsoft.Search/searchServices', variables('searchName'))]"
-      ]
     }
   ],
   "outputs": {
@@ -733,21 +569,13 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-07-01').loginServer]"
     },
-    "containerAppName": {
+    "containerAppEnvId": {
       "type": "string",
-      "value": "[variables('containerAppName')]"
+      "value": "[resourceId('Microsoft.App/managedEnvironments', variables('containerAppEnvName'))]"
     },
-    "orchestratorUrl": {
+    "containerAppEnvName": {
       "type": "string",
-      "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', variables('containerAppName')), '2023-05-01').configuration.ingress.fqdn)]"
-    },
-    "functionAppName": {
-      "type": "string",
-      "value": "[if(parameters('deployFunctionApp'), variables('functionAppName'), 'not-deployed')]"
-    },
-    "functionAppUrl": {
-      "type": "string",
-      "value": "[if(parameters('deployFunctionApp'), format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-01-01').defaultHostName), 'not-deployed')]"
+      "value": "[variables('containerAppEnvName')]"
     },
     "openAiEndpoint": {
       "type": "string",
@@ -797,6 +625,10 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName')), '2023-07-01').vaultUri]"
     },
+    "orchestratorIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName'))]"
+    },
     "orchestratorIdentityClientId": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('orchestratorIdentityName')), '2023-01-31').clientId]"
@@ -808,6 +640,14 @@
     "storageAccountName": {
       "type": "string",
       "value": "[if(parameters('deployFunctionApp'), variables('storageAccountName'), 'not-deployed')]"
+    },
+    "functionAppName": {
+      "type": "string",
+      "value": "[if(parameters('deployFunctionApp'), variables('functionAppName'), 'not-deployed')]"
+    },
+    "functionAppUrl": {
+      "type": "string",
+      "value": "[if(parameters('deployFunctionApp'), format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), '2023-01-01').defaultHostName), 'not-deployed')]"
     }
   }
 }
