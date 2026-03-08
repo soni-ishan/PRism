@@ -7,15 +7,17 @@ This directory contains Infrastructure as Code (IaC) templates and deployment sc
 ```
 deployment_config/
 ├── bicep/                        # Infrastructure as Code
-│   ├── main.bicep                # Main Azure Bicep template
-│   ├── main.json                 # Compiled ARM template
+│   ├── infra.bicep               # Foundation resources (ACR, OpenAI, Search, etc.)
+│   ├── app.bicep                 # Container App deployment (Step 2)
 │   ├── parameters.json           # Deployment parameters (fill in your values)
 │   └── parameters.example.json   # Example parameters file
 ├── scripts/                      # Deployment & cleanup scripts
-│   ├── deploy.ps1                # PowerShell deployment (Windows)
-│   ├── deploy.sh                 # Bash deployment (Linux/Mac)
-│   ├── cleanup.ps1               # PowerShell cleanup (Windows)
-│   └── cleanup.sh                # Bash cleanup (Linux/Mac)
+│   ├── deploy.ps1                # Full cloud deployment (Windows)
+│   ├── deploy-local.ps1          # Local dev setup (Windows)
+│   ├── deploy.sh                 # Full cloud deployment (Linux/Mac)
+│   ├── deploy-local.sh           # Local dev setup (Linux/Mac)
+│   ├── cleanup.ps1               # Cleanup + purge (Windows)
+│   └── cleanup.sh                # Cleanup + purge (Linux/Mac)
 ├── docker/                       # Container configuration
 │   ├── Dockerfile.orchestrator   # Docker image for the orchestrator
 │   └── docker-compose.yml        # Local development environment
@@ -133,7 +135,7 @@ uvicorn agents.orchestrator.server:app --reload --port 8000
 
 ### Modify Azure Resources
 
-Edit `bicep/main.bicep` to customize:
+Edit `bicep/infra.bicep` to customize:
 - **SKUs**: Change `sku.name` for any service (e.g., OpenAI capacity)
 - **Regions**: Update `location` parameter
 - **Scaling**: Adjust Container App min/max replicas
@@ -146,7 +148,7 @@ param openAiModelCapacity int = 50  // Increase from 30
 
 ### Environment Variables
 
-Add environment variables to the Container App in `bicep/main.bicep`:
+Add environment variables to the Container App in `bicep/app.bicep`:
 ```bicep
 {
   name: 'MY_CUSTOM_VAR'

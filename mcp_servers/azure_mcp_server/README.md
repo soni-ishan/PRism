@@ -1,62 +1,109 @@
-# Azure MCP Server Ingestion
+# Azure MCP Server — Incident Ingestion & Query
 
-This module now supports an Azure-native ingestion pipeline via Azure Functions.
+Ingests exception logs from Azure Log Analytics into an Azure AI Search index (`incidents`), which the History Agent queries at PR analysis time.
 
-## What runs where
+## Architecture
 
-- `agents/history_agent/*`: **read-only query path** during PR analysis
-- `mcp_servers/azure_mcp_server/function_app.py`: **write/ingestion path**
-  - pulls exception logs from Log Analytics/App Insights
-  - extracts source files (Azure OpenAI, with regex fallback)
-  - upserts incidents into Azure AI Search (`incidents` index)
+```
+Log Analytics (exceptions table)
+        │  KQL query
+        ▼
+   ingest.py ─── fetch_exceptions()
+        │
+        ▼
+   extract_files()          ← Azure OpenAI (or regex fallback)
+        │
+        ▼
+   push_incident()          → Azure AI Search "incidents" index
+        │
+        ▼
+   History Agent reads at PR time (query.py)
+```
+
+## Module layout
+
+| File | Role |
+|------|------|
+| `setup.py` | Creates the `incidents` index schema in AI Search |
+| `ingest.py` | Fetches exceptions, extracts file paths, pushes incident docs (write-only) |
+| `query.py` | Searches incidents by file path or free text (read-only) |
+| `function_app.py` | Azure Function triggers (Event Grid, Timer, HTTP) |
+| `mcp_server.py` | Facade class used by the History Agent |
+| `sample_data.py` | Uploads hardcoded test incidents for dev/demo |
 
 ## Azure Function triggers
 
-`mcp_servers/azure_mcp_server/function_app.py` exposes 3 triggers:
+`function_app.py` exposes three triggers:
 
-1. `ingest_from_monitor_alert` (Event Grid)
-   - Triggered by Azure Monitor alert events
-   - Calls `ingest_from_alert(...)`
+| Trigger | Type | Description |
+|---------|------|-------------|
+| `ingest_from_monitor_alert` | Event Grid | Fires on Azure Monitor alert; calls `ingest_from_alert()` |
+| `ingest_logs_timer` | Timer (every 10 min) | Pulls recent exceptions; calls `ingest_from_logs()` |
+| `ingest_logs_http` | HTTP POST `/api/ingest/logs` | Manual/backfill endpoint |
 
-2. `ingest_logs_timer` (Timer, every 10 minutes)
-   - Pulls recent exceptions from Log Analytics
-   - Calls `ingest_from_logs(...)`
+## Environment variables
 
-3. `ingest_logs_http` (HTTP POST)
-   - Manual/backfill endpoint for ops
-   - Route: `/api/ingest/logs`
+### Required
 
-## Required environment variables
+| Variable | Description |
+|----------|-------------|
+| `AZURE_SEARCH_ENDPOINT` | Azure AI Search endpoint (e.g. `https://prism-search.search.windows.net`) |
+| `AZURE_LOG_WORKSPACE_ID` | Log Analytics workspace GUID |
+| `AZURE_RESOURCE_NAME` | `cloud_RoleName` of the target service (for timer/CLI) |
 
-- `AZURE_LOG_WORKSPACE_ID` - Log Analytics workspace ID
-- `AZURE_RESOURCE_NAME` - service name (`cloud_RoleName`) for timer/http default
-- `AZURE_SEARCH_ENDPOINT` - Azure AI Search endpoint
-- `AZURE_SEARCH_KEY` - optional; if omitted uses Managed Identity
-- `AZURE_INGEST_WINDOW_MINUTES` - optional, default `30`
+### Optional
 
-Optional (for higher quality file extraction):
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AZURE_SEARCH_KEY` | — | Admin key; if omitted, uses `DefaultAzureCredential` |
+| `AZURE_INGEST_WINDOW_MINUTES` | `30` | KQL query window around fired time |
+| `AZURE_OPENAI_ENDPOINT` | — | Enables LLM-based file extraction from stack traces |
+| `AZURE_OPENAI_DEPLOYMENT` | — | Azure OpenAI model deployment name |
 
-- `AZURE_OPENAI_ENDPOINT`
-- `AZURE_OPENAI_DEPLOYMENT`
+## Local setup
 
-## Local run flow
+### 1. Install dependencies
 
-1. Install deps:
-   - `pip install -r requirements.txt`
-2. Set env vars above
-3. Run ingest directly (without Functions host):
-   - `python -m mcp_servers.azure_mcp_server.ingest --workspace-id <id> --resource-name <name> --fired-time 2026-03-04T12:00:00Z`
+```bash
+pip install -r requirements.txt
+```
 
-## Deploy shape (recommended)
+### 2. Create the AI Search index
 
-- Deploy `mcp_servers/azure_mcp_server/function_app.py` as Python Azure Function App
-- Assign Function App managed identity at least:
-  - Log Analytics Reader (workspace)
-  - Search Index Data Contributor (Azure AI Search)
-  - Cognitive Services User (if using Azure OpenAI with Entra auth)
+```bash
+python -m mcp_servers.azure_mcp_server.setup
+```
 
-## Runtime behavior
+Pass `--recreate` to drop and rebuild the index.
 
-- Timer/Event Grid trigger executes ingest pipeline
-- Pipeline writes incident docs to AI Search index `incidents`
-- History Agent only reads from `incidents` during PR scoring
+### 3. (Optional) Load sample data
+
+```bash
+python -m mcp_servers.azure_mcp_server.sample_data
+```
+
+Uploads 6 test incidents so you can verify the index and History Agent work end-to-end without a live Log Analytics workspace.
+
+### 4. Run a real ingestion
+
+```bash
+python -m mcp_servers.azure_mcp_server.ingest \
+  --workspace-id <LOG_ANALYTICS_WORKSPACE_GUID> \
+  --resource-name <CLOUD_ROLE_NAME> \
+  --fired-time 2026-03-07T12:00:00Z \
+  --window-minutes 30
+```
+
+This queries the `exceptions` table for rows where `cloud_RoleName` matches and `severityLevel >= 3`, extracts source file paths from stack traces, and pushes structured incident documents to AI Search.
+
+## Production deployment
+
+Deploy `function_app.py` as a Python Azure Function App. Assign its managed identity:
+
+| Role | Scope |
+|------|-------|
+| **Log Analytics Reader** | Log Analytics workspace |
+| **Search Index Data Contributor** | Azure AI Search resource |
+| **Cognitive Services User** | Azure OpenAI resource (only if using LLM extraction) |
+
+The timer trigger runs every 10 minutes. Event Grid triggers fire in real time on Monitor alerts. The HTTP trigger is available for on-demand backfills.
