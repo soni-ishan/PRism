@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 
 from agents.orchestrator import PRPayload, orchestrate
@@ -53,6 +53,25 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Freemium Usage Tracker ───────────────────────────────────────────
+# In-memory tracker (For a real SaaS, this would be Redis or Postgres)
+# Tracks: { "client_uuid": request_count }
+USAGE_TRACKER = {}
+FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+
+from typing import Optional
+
+def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
+    if not x_client_id:
+        raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    current_usage = USAGE_TRACKER.get(x_client_id, 0)
+    if current_usage >= FREE_TIER_LIMIT:
+        raise HTTPException(
+            status_code=402,
+            detail="Free trial exhausted. Please configure your own Enterprise PRism URL in VS Code Settings."
+        )
+    USAGE_TRACKER[x_client_id] = current_usage + 1
+    return x_client_id
 
 # ── Healthcheck ──────────────────────────────────────────────────────
 
@@ -63,8 +82,12 @@ async def health():
 
 # ── Manual analysis trigger ──────────────────────────────────────────
 
+
 @app.post("/analyze")
-async def analyze(payload: PRPayload):
+async def analyze(
+    payload: PRPayload,
+    client_id: str = Depends(check_freemium_limit)
+):
     """Accept a ``PRPayload`` directly and run the full pipeline."""
     verdict = await orchestrate(payload)
 
