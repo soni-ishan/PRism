@@ -24,3 +24,6 @@ azure-monitor-opentelemetry-exporter
 
 # ── MCP Client (Diff Analyst) ──
 mcp
+
+# ── Testing ──
+pytest-asyncio
