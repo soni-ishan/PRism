@@ -77,7 +77,7 @@ INDEX_FIELDS = [
 
 def _get_index_client() -> SearchIndexClient:
     """Create an authenticated SearchIndexClient."""
-    endpoint = os.getenv("AZURE_AI_SEARCH_ENDPOINT") or os.getenv("AZURE_SEARCH_ENDPOINT")
+    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
     key = os.getenv("AZURE_AI_SEARCH_KEY") or os.getenv("AZURE_SEARCH_KEY")
 
     if not endpoint:

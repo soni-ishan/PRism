@@ -92,8 +92,22 @@ async def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
             fired_time=fired_time,
             window_minutes=window_minutes,
         )
+    except (RuntimeError, ValueError, TypeError) as exc:
+        # Client configuration errors
+        logger.warning("Client error in log ingestion: %s", exc)
+        return func.HttpResponse(
+            json.dumps({"error": "Configuration error", "details": str(exc)}),
+            mimetype="application/json",
+            status_code=400
+        )
     except Exception as exc:
-        return func.HttpResponse(str(exc), status_code=400)
+        # Server/infrastructure errors (Azure SDK, network, etc.)
+        logger.exception("Server error in log ingestion: %s", exc)
+        return func.HttpResponse(
+            json.dumps({"error": "Internal server error", "details": "Processing failed. Please check logs for details."}),
+            mimetype="application/json", 
+            status_code=500
+        )
 
     return func.HttpResponse(
         json.dumps(
