@@ -7,13 +7,22 @@
  */
 
 import * as vscode from "vscode";
+
 import { SidebarProvider } from "./sidebarProvider";
+import { v4 as uuidv4 } from "uuid";
 
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
-  // ── Sidebar webview ────────────────────────────────────────────
-  const sidebarProvider = new SidebarProvider(context.extensionUri);
+  // 1. Get or generate a unique ID for this user's machine
+  let clientId = context.globalState.get<string>('prism.clientId');
+  if (!clientId) {
+    clientId = uuidv4();
+    context.globalState.update('prism.clientId', clientId);
+  }
+
+  // 2. Pass it to your SidebarProvider
+  const sidebarProvider = new SidebarProvider(context.extensionUri, clientId!);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

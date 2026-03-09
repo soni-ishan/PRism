@@ -1,6 +1,17 @@
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
-    "integration: marks tests that require real agent implementations (auto-skipped when agents are not ready)",
+    "unit: pure mock/unit test – no real I/O",
+    "integration: end-to-end test – real agent logic, external Azure calls are stubbed",
+    "azure_required: requires live Azure credentials (skipped when env vars are absent)",
+    "foundry_required: makes real Azure OpenAI calls and emits live traces to Foundry (skipped when credentials absent)",
 ]
+
+# Run unit tests by default; pass -m to narrow the scope:
+#   pytest                             # runs all tests (foundry_required auto-skipped without creds)
+#   pytest -m unit                     # unit tests only
+#   pytest -m integration              # integration tests only (stubs Azure I/O)
+#   pytest -m foundry_required -v      # live Foundry trace tests (needs env vars → appears in dashboard)
+#   pytest -m "unit or integration"    # both mock + E2E suites
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
