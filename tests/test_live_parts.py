@@ -78,8 +78,8 @@ def test_azure_search():
         from azure.core.credentials import AzureKeyCredential
         from azure.search.documents import SearchClient
 
-        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT") or os.getenv("AZURE_AI_SEARCH_ENDPOINT")
-        key = os.getenv("AZURE_SEARCH_KEY") or os.getenv("AZURE_AI_SEARCH_KEY")
+        endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+        key = os.getenv("AZURE_SEARCH_KEY")
 
         info(f"Endpoint: {endpoint}")
 
@@ -144,7 +144,7 @@ def test_github_pat():
     try:
         import httpx
 
-        token = os.getenv("GH_PAT") or os.getenv("GITHUB_TOKEN")
+        token = os.getenv("GH_PAT")
         repo = os.getenv("GITHUB_REPO", "simarpreet0037/test")
 
         info(f"Token prefix: {token[:10]}...")

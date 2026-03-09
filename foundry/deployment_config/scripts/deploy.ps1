@@ -501,13 +501,13 @@ if (Test-Path $setupScript) {
     Write-Info "Creating AI Search index..."
     
     # Set environment variables for setup script
-    $env:AZURE_AI_SEARCH_ENDPOINT = $outputs.aiSearchEndpoint.value
+    $env:AZURE_SEARCH_ENDPOINT = $outputs.aiSearchEndpoint.value
     $searchKey = az search admin-key show `
         --resource-group $ResourceGroupName `
         --service-name $searchName `
         --query "primaryKey" `
         --output tsv
-    $env:AZURE_AI_SEARCH_KEY = $searchKey
+    $env:AZURE_SEARCH_KEY = $searchKey
     
     try {
         python $setupScript
@@ -521,8 +521,8 @@ if (Test-Path $setupScript) {
     }
     finally {
         # Clear sensitive search key from environment
-        Remove-Item Env:\AZURE_AI_SEARCH_KEY -ErrorAction SilentlyContinue
-        Remove-Item Env:\AZURE_AI_SEARCH_ENDPOINT -ErrorAction SilentlyContinue
+        Remove-Item Env:\AZURE_SEARCH_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:\AZURE_SEARCH_ENDPOINT -ErrorAction SilentlyContinue
         $searchKey = $null
     }
 }
@@ -554,14 +554,13 @@ AZURE_OPENAI_ENDPOINT=$($outputs.openAiEndpoint.value)
 AZURE_OPENAI_DEPLOYMENT=$($outputs.openAiDeploymentName.value)
 
 # Azure AI Search
-AZURE_AI_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
+AZURE_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
 
 # Azure Content Safety
 AZURE_CONTENT_SAFETY_ENDPOINT=$($outputs.contentSafetyEndpoint.value)
 
 # Log Analytics (Incident Ingestion)
 AZURE_LOG_WORKSPACE_ID=$($outputs.logAnalyticsWorkspaceId.value)
-AZURE_RESOURCE_NAME=$containerAppName
 
 # Application Insights
 APPLICATIONINSIGHTS_CONNECTION_STRING=$($outputs.appInsightsConnectionString.value)

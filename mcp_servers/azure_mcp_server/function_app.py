@@ -25,20 +25,16 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _run_log_ingest(resource_name: str, fired_time: str | None = None) -> dict[str, int]:
+def _run_log_ingest(fired_time: str | None = None) -> dict[str, int]:
     workspace_id = os.getenv("AZURE_LOG_WORKSPACE_ID", "")
     if not workspace_id:
         raise RuntimeError("AZURE_LOG_WORKSPACE_ID is required")
-
-    if not resource_name:
-        raise RuntimeError("resource_name is required")
 
     window_minutes = int(os.getenv("AZURE_INGEST_WINDOW_MINUTES", "30"))
 
     return asyncio.run(
         ingest_from_logs(
             workspace_id=workspace_id,
-            resource_name=resource_name,
             fired_time=fired_time,
             window_minutes=window_minutes,
         )
@@ -66,13 +62,8 @@ def ingest_logs_timer(timer: func.TimerRequest) -> None:
     Independent scheduled ingestion from Log Analytics.
     Default cadence: every 10 minutes.
     """
-    resource_name = os.getenv("AZURE_RESOURCE_NAME", "")
-    if not resource_name:
-        logger.warning("Skipping timer ingest: AZURE_RESOURCE_NAME not set")
-        return
-
     try:
-        summary = _run_log_ingest(resource_name=resource_name, fired_time=_utc_now_iso())
+        summary = _run_log_ingest(fired_time=_utc_now_iso())
         logger.info(
             "Timer ingest complete fetched=%d prepared=%d pushed=%d",
             summary["fetched"],
@@ -92,11 +83,10 @@ def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
     except ValueError:
         body = {}
 
-    resource_name = body.get("resource_name") or req.params.get("resource_name") or os.getenv("AZURE_RESOURCE_NAME", "")
     fired_time = body.get("fired_time") or req.params.get("fired_time") or _utc_now_iso()
 
     try:
-        summary = _run_log_ingest(resource_name=resource_name, fired_time=fired_time)
+        summary = _run_log_ingest(fired_time=fired_time)
     except Exception as exc:
         return func.HttpResponse(str(exc), status_code=400)
 
@@ -104,7 +94,6 @@ def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
         json.dumps(
             {
                 "status": "ok",
-                "resource_name": resource_name,
                 "fired_time": fired_time,
                 "summary": summary,
             }

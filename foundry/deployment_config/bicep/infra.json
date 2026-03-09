@@ -487,11 +487,11 @@
               "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('openAiName')), '2023-05-01').key1]"
             },
             {
-              "name": "AZURE_AI_SEARCH_ENDPOINT",
+              "name": "AZURE_SEARCH_ENDPOINT",
               "value": "[format('https://{0}.search.windows.net', variables('searchName'))]"
             },
             {
-              "name": "AZURE_AI_SEARCH_KEY",
+              "name": "AZURE_SEARCH_KEY",
               "value": "[listAdminKeys(resourceId('Microsoft.Search/searchServices', variables('searchName')), '2023-11-01').primaryKey]"
             },
             {

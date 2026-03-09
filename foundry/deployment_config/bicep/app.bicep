@@ -189,11 +189,11 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               secretRef: 'openai-api-key'
             }
             {
-              name: 'AZURE_AI_SEARCH_ENDPOINT'
+              name: 'AZURE_SEARCH_ENDPOINT'
               value: 'https://${search.name}.search.windows.net'
             }
             {
-              name: 'AZURE_AI_SEARCH_KEY'
+              name: 'AZURE_SEARCH_KEY'
               secretRef: 'search-admin-key'
             }
             {
@@ -209,7 +209,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               secretRef: 'appinsights-connection-string'
             }
             {
-              name: 'GITHUB_TOKEN'
+              name: 'GH_PAT'
               secretRef: 'github-token'
             }
             {

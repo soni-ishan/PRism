@@ -181,15 +181,14 @@ def _looks_like_real_file(path: str) -> bool:
 
 async def fetch_exceptions(
     workspace_id: str,
-    resource_name: str,
     fired_time: str,
     window_minutes: int = 10,
 ) -> list[dict[str, Any]]:
     """
-    Query Application Insights for recent exceptions on a resource.
+    Query Application Insights for recent exceptions across the workspace.
 
     Returns:
-        List of dicts with keys: timestamp, exception_type, message, stacktrace
+        List of dicts with keys: timestamp, exception_type, message, stacktrace, service_name
     """
     credential = DefaultAzureCredential()
     logs_client = LogsQueryClient(credential)
@@ -198,7 +197,6 @@ async def fetch_exceptions(
     exceptions
     | where timestamp >= datetime('{fired_time}') - {window_minutes}m
     | where timestamp <= datetime('{fired_time}') + 5m
-    | where cloud_RoleName == '{resource_name}'
     | where severityLevel >= 3
     | project
         timestamp,
@@ -206,7 +204,7 @@ async def fetch_exceptions(
         message = outerMessage,
         stackTrace = tostring(details[0].rawStack),
         serviceName = cloud_RoleName
-    | top 5 by timestamp desc
+    | top 50 by timestamp desc
     """
 
     try:
@@ -246,12 +244,12 @@ def push_incident(incident: dict[str, Any]) -> bool:
 
     Returns True on success, False on failure.
     """
-    endpoint = os.getenv("AZURE_AI_SEARCH_ENDPOINT") or os.getenv("AZURE_SEARCH_ENDPOINT")
+    endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
     if not endpoint:
-        logger.error("AZURE_AI_SEARCH_ENDPOINT not set — cannot push incident")
+        logger.error("AZURE_SEARCH_ENDPOINT not set — cannot push incident")
         return False
 
-    key = os.getenv("AZURE_AI_SEARCH_KEY") or os.getenv("AZURE_SEARCH_KEY")
+    key = os.getenv("AZURE_SEARCH_KEY")
 
     try:
         credential = AzureKeyCredential(key) if key else DefaultAzureCredential()
@@ -305,7 +303,6 @@ def _build_incident_from_exception(
 
 async def ingest_from_logs(
     workspace_id: str,
-    resource_name: str,
     fired_time: str | None = None,
     window_minutes: int = 30,
 ) -> dict[str, int]:
@@ -319,7 +316,6 @@ async def ingest_from_logs(
 
     exceptions = await fetch_exceptions(
         workspace_id=workspace_id,
-        resource_name=resource_name,
         fired_time=effective_fired_time,
         window_minutes=window_minutes,
     )
@@ -443,11 +439,6 @@ def main() -> None:
         help="Azure Log Analytics workspace ID",
     )
     parser.add_argument(
-        "--resource-name",
-        default=os.getenv("AZURE_RESOURCE_NAME", ""),
-        help="Service/resource name (cloud_RoleName)",
-    )
-    parser.add_argument(
         "--fired-time",
         default=os.getenv("AZURE_INGEST_FIRED_TIME", ""),
         help="Reference UTC time (ISO-8601), e.g. 2026-03-04T12:00:00Z",
@@ -462,15 +453,12 @@ def main() -> None:
 
     if not args.workspace_id:
         raise SystemExit("--workspace-id or AZURE_LOG_WORKSPACE_ID is required")
-    if not args.resource_name:
-        raise SystemExit("--resource-name or AZURE_RESOURCE_NAME is required")
     if not args.fired_time:
         raise SystemExit("--fired-time or AZURE_INGEST_FIRED_TIME is required")
 
     summary = asyncio.run(
         ingest_from_logs(
             workspace_id=args.workspace_id,
-            resource_name=args.resource_name,
             fired_time=args.fired_time,
             window_minutes=args.window_minutes,
         )

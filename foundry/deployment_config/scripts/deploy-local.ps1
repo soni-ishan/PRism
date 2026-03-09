@@ -269,8 +269,6 @@ AZURE_OPENAI_API_KEY=$openAiKey
 AZURE_OPENAI_DEPLOYMENT=$($outputs.openAiDeploymentName.value)
 
 # -- Azure AI Search --
-AZURE_AI_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
-AZURE_AI_SEARCH_KEY=$searchKey
 AZURE_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
 AZURE_SEARCH_KEY=$searchKey
 
@@ -280,7 +278,6 @@ AZURE_CONTENT_SAFETY_KEY=$contentSafetyKey
 
 # -- Log Analytics (Incident Ingestion) --
 AZURE_LOG_WORKSPACE_ID=$($outputs.logAnalyticsWorkspaceId.value)
-AZURE_RESOURCE_NAME=$($outputs.containerAppEnvName.value -replace '-env$','-orchestrator')
 
 # -- Application Insights --
 APPLICATIONINSIGHTS_CONNECTION_STRING=$($outputs.appInsightsConnectionString.value)
@@ -293,7 +290,6 @@ AZURE_CLIENT_ID=$($outputs.orchestratorIdentityClientId.value)
 
 # -- GitHub --
 GH_PAT=$ghToken
-GITHUB_TOKEN=$ghToken
 GITHUB_WEBHOOK_SECRET=$ghWebhookSecret
 GITHUB_REPO_OWNER=$ghRepoOwner
 GITHUB_REPO_NAME=$ghRepoName

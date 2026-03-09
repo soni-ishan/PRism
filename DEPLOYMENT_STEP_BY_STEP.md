@@ -425,13 +425,13 @@ GitHub will send a test ping. Check the webhook deliveries to ensure it succeede
 
 ```powershell
 # Set environment variables
-$env:AZURE_AI_SEARCH_ENDPOINT = "https://your-search-service.search.windows.net"
+$env:AZURE_SEARCH_ENDPOINT = "https://your-search-service.search.windows.net"
 $searchKey = az search admin-key show `
   --resource-group rg-prism-prod `
   --service-name prism-prod-search-... `
   --query "primaryKey" `
   --output tsv
-$env:AZURE_AI_SEARCH_KEY = $searchKey
+$env:AZURE_SEARCH_KEY = $searchKey
 
 # Load sample data
 python mcp_servers\azure_mcp_server\sample_data.py

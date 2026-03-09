@@ -172,11 +172,11 @@
                   "secretRef": "openai-api-key"
                 },
                 {
-                  "name": "AZURE_AI_SEARCH_ENDPOINT",
+                  "name": "AZURE_SEARCH_ENDPOINT",
                   "value": "[format('https://{0}.search.windows.net', variables('searchName'))]"
                 },
                 {
-                  "name": "AZURE_AI_SEARCH_KEY",
+                  "name": "AZURE_SEARCH_KEY",
                   "secretRef": "search-admin-key"
                 },
                 {
@@ -192,7 +192,7 @@
                   "secretRef": "appinsights-connection-string"
                 },
                 {
-                  "name": "GITHUB_TOKEN",
+                  "name": "GH_PAT",
                   "secretRef": "github-token"
                 },
                 {

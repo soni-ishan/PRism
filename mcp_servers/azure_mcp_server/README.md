@@ -49,7 +49,6 @@ Log Analytics (exceptions table)
 |----------|-------------|
 | `AZURE_SEARCH_ENDPOINT` | Azure AI Search endpoint (e.g. `https://prism-search.search.windows.net`) |
 | `AZURE_LOG_WORKSPACE_ID` | Log Analytics workspace GUID |
-| `AZURE_RESOURCE_NAME` | `cloud_RoleName` of the target service (for timer/CLI) |
 
 ### Optional
 

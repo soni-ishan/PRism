@@ -451,11 +451,11 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = if (deployFunctionApp) {
           value: openAi.listKeys().key1
         }
         {
-          name: 'AZURE_AI_SEARCH_ENDPOINT'
+          name: 'AZURE_SEARCH_ENDPOINT'
           value: 'https://${search.name}.search.windows.net'
         }
         {
-          name: 'AZURE_AI_SEARCH_KEY'
+          name: 'AZURE_SEARCH_KEY'
           value: search.listAdminKeys().primaryKey
         }
         {
