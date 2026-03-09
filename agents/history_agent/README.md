@@ -42,35 +42,34 @@ The History Agent correlates PR file changes with past production incidents to a
 
 ## Quick Start
 
-### 1. Configure Azure Credentials
+### 1. Deploy Azure Resources (Easiest)
 
+Run the unified deploy script from the repo root:
 
-Create a `.env` file in the project root with:
-
-```bash
-# Required for History Agent
-AZURE_TENANT_ID=your-tenant-id
-AZURE_CLIENT_ID=your-service-principal-client-id
-AZURE_CLIENT_SECRET=your-service-principal-secret
-
-# Azure AI Search (where incidents are indexed)
-AZURE_SEARCH_ENDPOINT=https://your-search-service.search.windows.net
-AZURE_SEARCH_KEY=your-search-admin-key
-
-# Optional: for Log Analytics direct queries (future feature)
-AZURE_LOG_WORKSPACE_ID=your-log-analytics-workspace-id
+```powershell
+az login
+./foundry/deployment_config/scripts/deploy.ps1 -SubscriptionId <sub-id> -ResourceGroupName <rg-name>
 ```
 
-### 2. Populate Azure AI Search with Sample Data
+This will:
+- Create Azure AI Search service
+- Create Azure Function App for ingestion
+- Auto-discover Log Analytics workspace and OpenAI
+- Assign all RBAC roles
+- Print your `.env` configuration
+
+See [foundry/deployment_config/DEPLOY_README.md](../../foundry/deployment_config/DEPLOY_README.md) for details.
+
+### 2. Configure Azure Credentials (after deploy script runs)
 
 Run the setup script to create the index and upload sample incidents:
 
 ```powershell
-python setup_azure_search.py
+python -m mcp_servers.azure_mcp_server.setup
 ```
 
 This will:
-- Connect to your Azure AI Search service
+- Connect to your Azure AI Search service (using `AZURE_SEARCH_ENDPOINT` from `.env`)
 - Create the `incidents` index (if it doesn't exist)
 - Upload 8 sample incidents for testing
 

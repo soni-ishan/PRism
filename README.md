@@ -170,6 +170,9 @@ prism/
 ├── vscode_extension/               # PRism Confidence Sidebar (TypeScript)
 ├── foundry/
 │   └── deployment_config/          # Azure Foundry governance config
+│       ├── bicep/                  # Bicep/ARM IaC templates
+│       ├── scripts/                # Deploy & cleanup scripts
+│       └── docker/                 # Dockerfile & Compose
 ├── docs/
 │   ├── architecture_diagram.md     # Mermaid system diagram
 │   └── demo_script.md              # 2-minute demo storyboard
@@ -221,6 +224,10 @@ uvicorn agents.orchestrator.server:app --reload --port 8000
 ```
 
 Full Azure deployment: see [`foundry/deployment_config/README.md`](foundry/deployment_config/README.md)
+
+History Agent + Azure Function IaC deployment:
+- `agents/history_agent/README.md`
+- `mcp_servers/azure_mcp_server/README.md`
 
 ---
 
