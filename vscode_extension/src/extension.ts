@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from "uuid";
 
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-
+export function activate(context: vscode.ExtensionContext) {
   // 1. Get or generate a unique ID for this user's machine
   let clientId = context.globalState.get<string>('prism.clientId');
   if (!clientId) {

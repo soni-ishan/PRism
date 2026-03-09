@@ -182,7 +182,6 @@ def setup_tracing() -> bool:
         # Resource service.name attribute shown in Foundry.
         os.environ.setdefault("OTEL_SERVICE_NAME", "prism-pipeline")
         configure_azure_monitor(connection_string=appinsights_conn)
-        _tracing_initialised = True
 
         # Instrument the openai SDK so chat.completions.create() calls
         # emit gen_ai.* spans that Foundry Tracing can visualise.
@@ -200,6 +199,9 @@ def setup_tracing() -> bool:
                 "for LLM-level gen_ai.* spans)."
             )
 
+        # Only mark as initialised once the full preferred path has completed
+        # successfully (both configure_azure_monitor and instrumentation setup).
+        _tracing_initialised = True
         return True
 
     except ImportError:

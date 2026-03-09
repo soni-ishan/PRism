@@ -22,6 +22,7 @@ import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -55,22 +56,37 @@ app = FastAPI(
 
 # ── Freemium Usage Tracker ───────────────────────────────────────────
 # In-memory tracker (For a real SaaS, this would be Redis or Postgres)
-# Tracks: { "client_uuid": request_count }
-USAGE_TRACKER = {}
+# Tracks: { "client_uuid": {"count": int, "first_seen": float} }
+# Entries older than _USAGE_TTL_SECONDS are evicted to bound memory growth.
+USAGE_TRACKER: dict = {}
 FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+_USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30-day rolling window
 
 from typing import Optional
+
+
+def _evict_expired_usage() -> None:
+    """Remove tracker entries older than _USAGE_TTL_SECONDS to prevent unbounded growth."""
+    cutoff = time.time() - _USAGE_TTL_SECONDS
+    expired = [k for k, v in USAGE_TRACKER.items() if v.get("first_seen", 0) < cutoff]
+    for k in expired:
+        del USAGE_TRACKER[k]
+
 
 def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
     if not x_client_id:
         raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
-    current_usage = USAGE_TRACKER.get(x_client_id, 0)
-    if current_usage >= FREE_TIER_LIMIT:
+    _evict_expired_usage()
+    entry = USAGE_TRACKER.get(x_client_id)
+    if entry is None:
+        entry = {"count": 0, "first_seen": time.time()}
+    if entry["count"] >= FREE_TIER_LIMIT:
         raise HTTPException(
             status_code=402,
             detail="Free trial exhausted. Please configure your own Enterprise PRism URL in VS Code Settings."
         )
-    USAGE_TRACKER[x_client_id] = current_usage + 1
+    entry["count"] += 1
+    USAGE_TRACKER[x_client_id] = entry
     return x_client_id
 
 # ── Healthcheck ──────────────────────────────────────────────────────

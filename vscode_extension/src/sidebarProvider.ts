@@ -84,7 +84,7 @@ const MOCK_VERDICT: VerdictReport = {
 
 // ── Provider ────────────────────────────────────────────────────────
 
-
+export class SidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "prism.sidebar";
 
   private _view?: vscode.WebviewView;
