@@ -151,6 +151,15 @@ def setup_tracing() -> bool:
 
     Call this once at application startup (e.g. in the FastAPI lifespan).
     Returns ``True`` if tracing was successfully initialised.
+
+    Preferred path (azure-monitor-opentelemetry installed):
+        Uses ``configure_azure_monitor()`` which auto-instruments the OpenAI
+        SDK so every LLM call emits ``gen_ai.*`` semantic-convention spans
+        that appear in the Foundry Tracing dashboard.
+
+    Fallback path (only exporter installed):
+        Sets up a bare ``TracerProvider`` + ``BatchSpanProcessor``.  Custom
+        ``prism.agent.*`` spans are exported but OpenAI calls are not traced.
     """
     global _tracing_initialised
 
@@ -164,6 +173,46 @@ def setup_tracing() -> bool:
         )
         return False
 
+    # ── Preferred: configure_azure_monitor() + OpenAI auto-instrumentor ──────
+    # This is the path that makes LLM calls visible in Foundry Tracing.
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+
+        # OTEL_SERVICE_NAME is read by configure_azure_monitor for the
+        # Resource service.name attribute shown in Foundry.
+        os.environ.setdefault("OTEL_SERVICE_NAME", "prism-pipeline")
+        configure_azure_monitor(connection_string=appinsights_conn)
+        _tracing_initialised = True
+
+        # Instrument the openai SDK so chat.completions.create() calls
+        # emit gen_ai.* spans that Foundry Tracing can visualise.
+        try:
+            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+            OpenAIInstrumentor().instrument()
+            logger.info(
+                "OpenTelemetry tracing initialised via configure_azure_monitor "
+                "→ Application Insights (OpenAI gen_ai.* spans enabled)."
+            )
+        except ImportError:
+            logger.info(
+                "OpenTelemetry tracing initialised via configure_azure_monitor "
+                "→ Application Insights (install opentelemetry-instrumentation-openai-v2 "
+                "for LLM-level gen_ai.* spans)."
+            )
+
+        return True
+
+    except ImportError:
+        logger.debug(
+            "azure-monitor-opentelemetry not installed — falling back to manual "
+            "TracerProvider setup (no OpenAI auto-instrumentation). "
+            "Install with: pip install azure-monitor-opentelemetry "
+            "opentelemetry-instrumentation-openai-v2"
+        )
+    except Exception as exc:
+        logger.warning("configure_azure_monitor failed (%s) — falling back.", exc)
+
+    # ── Fallback: bare TracerProvider + BatchSpanProcessor ───────────────────
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
@@ -192,7 +241,7 @@ def setup_tracing() -> bool:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         _tracing_initialised = True
-        logger.info("OpenTelemetry tracing initialised → Application Insights.")
+        logger.info("OpenTelemetry tracing initialised → Application Insights (fallback path).")
         return True
     except Exception as exc:
         logger.warning("Failed to initialise tracing: %s", exc)
