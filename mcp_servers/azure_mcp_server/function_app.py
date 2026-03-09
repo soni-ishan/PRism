@@ -25,28 +25,12 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _run_log_ingest(fired_time: str | None = None) -> dict[str, int]:
-    workspace_id = os.getenv("AZURE_LOG_WORKSPACE_ID", "")
-    if not workspace_id:
-        raise RuntimeError("AZURE_LOG_WORKSPACE_ID is required")
-
-    window_minutes = int(os.getenv("AZURE_INGEST_WINDOW_MINUTES", "30"))
-
-    return asyncio.run(
-        ingest_from_logs(
-            workspace_id=workspace_id,
-            fired_time=fired_time,
-            window_minutes=window_minutes,
-        )
-    )
-
-
 @app.event_grid_trigger(arg_name="event")
-def ingest_from_monitor_alert(event: func.EventGridEvent) -> None:
+async def ingest_from_monitor_alert(event: func.EventGridEvent) -> None:
     """Push Monitor-alert-driven incidents into Azure AI Search."""
     try:
         payload = event.get_json()
-        incident = asyncio.run(ingest_from_alert(payload))
+        incident = await ingest_from_alert(payload)
         if incident:
             logger.info("Alert ingest succeeded for incident_id=%s", incident.get("id"))
         else:
@@ -57,13 +41,24 @@ def ingest_from_monitor_alert(event: func.EventGridEvent) -> None:
 
 
 @app.timer_trigger(schedule="0 */10 * * * *", arg_name="timer", run_on_startup=False, use_monitor=True)
-def ingest_logs_timer(timer: func.TimerRequest) -> None:
+async def ingest_logs_timer(timer: func.TimerRequest) -> None:
     """
     Independent scheduled ingestion from Log Analytics.
     Default cadence: every 10 minutes.
     """
     try:
-        summary = _run_log_ingest(fired_time=_utc_now_iso())
+        workspace_id = os.getenv("AZURE_LOG_WORKSPACE_ID", "")
+        if not workspace_id:
+            raise RuntimeError("AZURE_LOG_WORKSPACE_ID is required")
+
+        window_minutes = int(os.getenv("AZURE_INGEST_WINDOW_MINUTES", "30"))
+        fired_time = _utc_now_iso()
+        
+        summary = await ingest_from_logs(
+            workspace_id=workspace_id,
+            fired_time=fired_time,
+            window_minutes=window_minutes,
+        )
         logger.info(
             "Timer ingest complete fetched=%d prepared=%d pushed=%d",
             summary["fetched"],
@@ -76,7 +71,7 @@ def ingest_logs_timer(timer: func.TimerRequest) -> None:
 
 
 @app.route(route="ingest/logs", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
-def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
+async def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
     """Manual trigger for on-demand/backfill ingestion."""
     try:
         body = req.get_json()
@@ -86,7 +81,17 @@ def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
     fired_time = body.get("fired_time") or req.params.get("fired_time") or _utc_now_iso()
 
     try:
-        summary = _run_log_ingest(fired_time=fired_time)
+        workspace_id = os.getenv("AZURE_LOG_WORKSPACE_ID", "")
+        if not workspace_id:
+            raise RuntimeError("AZURE_LOG_WORKSPACE_ID is required")
+
+        window_minutes = int(os.getenv("AZURE_INGEST_WINDOW_MINUTES", "30"))
+        
+        summary = await ingest_from_logs(
+            workspace_id=workspace_id,
+            fired_time=fired_time,
+            window_minutes=window_minutes,
+        )
     except Exception as exc:
         return func.HttpResponse(str(exc), status_code=400)
 

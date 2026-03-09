@@ -385,7 +385,6 @@ async def ingest_from_alert(alert_payload: dict[str, Any]) -> dict[str, Any] | N
     if workspace_id:
         exceptions = await fetch_exceptions(
             workspace_id=workspace_id,
-            resource_name=resource_name,
             fired_time=fired_time,
         )
 

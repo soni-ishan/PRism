@@ -88,12 +88,11 @@ Uploads 6 test incidents so you can verify the index and History Agent work end-
 ```bash
 python -m mcp_servers.azure_mcp_server.ingest \
   --workspace-id <LOG_ANALYTICS_WORKSPACE_GUID> \
-  --resource-name <CLOUD_ROLE_NAME> \
   --fired-time 2026-03-07T12:00:00Z \
   --window-minutes 30
 ```
 
-This queries the `exceptions` table for rows where `cloud_RoleName` matches and `severityLevel >= 3`, extracts source file paths from stack traces, and pushes structured incident documents to AI Search.
+This queries the `exceptions` table for rows where `severityLevel >= 3`, extracts source file paths from stack traces, and pushes structured incident documents to AI Search.
 
 ## Production deployment
 

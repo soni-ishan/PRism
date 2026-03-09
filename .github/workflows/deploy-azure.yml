@@ -97,40 +97,50 @@ jobs:
             --parameters params.json \
             --output json > deployment-output.json
           
-          # Extract outputs
+          # Extract outputs from infra deployment only
           ACR_NAME=$(jq -r '.properties.outputs.containerRegistryName.value' deployment-output.json)
           ACR_LOGIN_SERVER=$(jq -r '.properties.outputs.containerRegistryLoginServer.value' deployment-output.json)
-          CONTAINER_APP_NAME=$(jq -r '.properties.outputs.containerAppName.value' deployment-output.json)
           FUNCTION_APP_NAME=$(jq -r '.properties.outputs.functionAppName.value' deployment-output.json)
-          ORCHESTRATOR_URL=$(jq -r '.properties.outputs.orchestratorUrl.value' deployment-output.json)
           
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
-          echo "CONTAINER_APP_NAME=$CONTAINER_APP_NAME" >> $GITHUB_ENV
           echo "FUNCTION_APP_NAME=$FUNCTION_APP_NAME" >> $GITHUB_ENV
-          echo "ORCHESTRATOR_URL=$ORCHESTRATOR_URL" >> $GITHUB_ENV
       
       - name: Get Deployment Outputs (existing deployment)
         if: ${{ inputs.skip_infrastructure }}
         run: |
-          # Get the latest deployment
-          LATEST_DEPLOYMENT=$(az deployment group list \
+          # Get the latest infrastructure deployment for ACR/Function outputs
+          LATEST_INFRA_DEPLOYMENT=$(az deployment group list \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[?contains(name, 'prism-deploy')] | sort_by(@, &properties.timestamp) | [-1].name" \
+            --query "[?contains(name, 'prism-deploy') && !contains(name, '-app')] | sort_by(@, &properties.timestamp) | [-1].name" \
             --output tsv)
           
           az deployment group show \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name $LATEST_DEPLOYMENT \
+            --name $LATEST_INFRA_DEPLOYMENT \
             --query "properties.outputs" \
             --output json > deployment-output.json
           
-          # Extract outputs
+          # Get the latest app deployment for Container App outputs
+          LATEST_APP_DEPLOYMENT=$(az deployment group list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?contains(name, 'prism-deploy') && contains(name, '-app')] | sort_by(@, &properties.timestamp) | [-1].name" \
+            --output tsv)
+          
+          az deployment group show \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name $LATEST_APP_DEPLOYMENT \
+            --query "properties.outputs" \
+            --output json > app-deployment-output.json
+          
+          # Extract outputs from infrastructure deployment
           ACR_NAME=$(jq -r '.containerRegistryName.value' deployment-output.json)
           ACR_LOGIN_SERVER=$(jq -r '.containerRegistryLoginServer.value' deployment-output.json)
-          CONTAINER_APP_NAME=$(jq -r '.containerAppName.value' deployment-output.json)
           FUNCTION_APP_NAME=$(jq -r '.functionAppName.value' deployment-output.json)
-          ORCHESTRATOR_URL=$(jq -r '.orchestratorUrl.value' deployment-output.json)
+          
+          # Extract outputs from app deployment
+          CONTAINER_APP_NAME=$(jq -r '.containerAppName.value' app-deployment-output.json)
+          ORCHESTRATOR_URL=$(jq -r '.orchestratorUrl.value' app-deployment-output.json)
           
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
@@ -162,6 +172,24 @@ jobs:
           docker push $IMAGE_LATEST
           
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+      
+      - name: Deploy Container App
+        if: ${{ !inputs.skip_infrastructure }}
+        run: |
+          # Deploy Container App (Step 2: app.bicep)
+          az deployment group create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.DEPLOYMENT_NAME }}-app \
+            --template-file foundry/deployment_config/bicep/app.bicep \
+            --parameters params.json \
+            --output json > app-deployment-output.json
+          
+          # Extract Container App outputs
+          CONTAINER_APP_NAME=$(jq -r '.properties.outputs.containerAppName.value' app-deployment-output.json)
+          ORCHESTRATOR_URL=$(jq -r '.properties.outputs.orchestratorUrl.value' app-deployment-output.json)
+          
+          echo "CONTAINER_APP_NAME=$CONTAINER_APP_NAME" >> $GITHUB_ENV
+          echo "ORCHESTRATOR_URL=$ORCHESTRATOR_URL" >> $GITHUB_ENV
       
       - name: Update Container App
         run: |

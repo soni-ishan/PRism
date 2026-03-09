@@ -20,15 +20,14 @@ That's it! ☕ Grab coffee while Azure deploys (15-20 minutes).
 
 | File | Purpose |
 |------|---------|
-| `main.bicep` | Main Azure Bicep template - defines all Azure resources |
+| `infra.bicep` | Foundation infrastructure Bicep template - defines Azure services (ACR, OpenAI, Search, etc.) |
+| `app.bicep` | Container App Bicep template - defines the orchestrator Container App |
 | `parameters.json` | Deployment parameters (fill in your values) |
 | `parameters.example.json` | Example parameters file |
 | `Dockerfile.orchestrator` | Docker image for the orchestrator service |
 | `docker-compose.yml` | Local development environment |
-| `deploy.ps1` | PowerShell deployment script (Windows) |
-| `deploy.sh` | Bash deployment script (Linux/Mac) |
+| `deploy-local.ps1` | PowerShell deployment script (Windows) |
 | `cleanup.ps1` | PowerShell cleanup script (Windows) |
-| `cleanup.sh` | Bash cleanup script (Linux/Mac) |
 
 ---
 
@@ -524,11 +523,14 @@ AZURE_CLIENT_ID  # Managed Identity
 
 ### Modify Azure Resources
 
-Edit `main.bicep` to customize:
+Edit `infra.bicep` to customize infrastructure:
 - **SKUs**: Change `sku.name` for any service (e.g., OpenAI capacity)
 - **Regions**: Update `location` parameter  
-- **Scaling**: Adjust Container App min/max replicas
 - **Retention**: Change Log Analytics retention period
+
+Edit `app.bicep` to customize the Container App:
+- **Scaling**: Adjust Container App min/max replicas
+- **Resources**: Change CPU/memory allocations
 
 Example - Increase OpenAI capacity:
 ```bicep
@@ -537,7 +539,7 @@ param openAiModelCapacity int = 50  // Increase from 30
 
 ### Environment Variables
 
-Add environment variables to the Container App in `main.bicep`:
+Add environment variables to the Container App in `app.bicep`:
 ```bicep
 {
   name: 'MY_CUSTOM_VAR'

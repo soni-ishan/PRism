@@ -48,7 +48,7 @@ Run the unified deploy script from the repo root:
 
 ```powershell
 az login
-./deploy/deploy.ps1 -SubscriptionId <sub-id> -ResourceGroupName <rg-name>
+./foundry/deployment_config/scripts/deploy.ps1 -SubscriptionId <sub-id> -ResourceGroupName <rg-name>
 ```
 
 This will:
@@ -58,7 +58,7 @@ This will:
 - Assign all RBAC roles
 - Print your `.env` configuration
 
-See [deploy/README.md](../../deploy/README.md) for details.
+See [foundry/deployment_config/DEPLOY_README.md](../../foundry/deployment_config/DEPLOY_README.md) for details.
 
 ### 2. Configure Azure Credentials (after deploy script runs)
 

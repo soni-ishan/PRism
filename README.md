@@ -226,8 +226,8 @@ uvicorn agents.orchestrator.server:app --reload --port 8000
 Full Azure deployment: see [`foundry/deployment_config/README.md`](foundry/deployment_config/README.md)
 
 History Agent + Azure Function IaC deployment:
-- `deploy/history_agent/README.md`
-- `deploy/ingestion_function/README.md`
+- `agents/history_agent/README.md`
+- `mcp_servers/azure_mcp_server/README.md`
 
 ---
 
