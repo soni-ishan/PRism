@@ -4,14 +4,23 @@ Tests for the PRism Webhook Server (FastAPI).
 
 from __future__ import annotations
 
+import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
-from agents.orchestrator.server import app, _parse_github_webhook, _verify_signature
+from agents.orchestrator.server import app, _parse_github_webhook, _verify_signature, USAGE_TRACKER
 from agents.shared.data_contract import VerdictReport
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _clear_usage_tracker():
+    """Reset freemium counter so unit tests are isolated."""
+    USAGE_TRACKER.clear()
+    yield
+    USAGE_TRACKER.clear()
+
 
 MOCK_VERDICT = VerdictReport(
     confidence_score=75,
@@ -115,6 +124,7 @@ class TestAPIEndpoints:
                 "changed_files": ["payment_service.py"],
                 "diff": "- old\n+ new",
             },
+            headers={"X-Client-ID": "unit-test-client"},
         )
         assert resp.status_code == 200
         data = resp.json()
