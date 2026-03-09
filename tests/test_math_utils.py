@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from PRism.math_utils import calculate_discount
+from math_utils import calculate_discount
 
 
 # ── TestCalculateDiscount ─────────────────────────────────────────────
