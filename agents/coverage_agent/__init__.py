@@ -1,174 +1,138 @@
-# import os
-# import ast
-# import subprocess
-# from typing import Any
-# from agents.shared.data_contract import AgentResult
+"""PRism Coverage Agent.
 
-# async def run(pr_payload: dict[str, Any] = None) -> AgentResult:
-#     """
-#     PRism Coverage Agent - Aligned to System Rules.
-#     """
-#     # 1. PRism Standard: Get files from the payload
-#     if pr_payload is None:
-#         pr_payload = {}
-#     changed_files = pr_payload.get("changed_files", ["math_utils.py"])
-    
-#     findings = []
-#     missing_tests = []
-    
-#     # 2. YOUR ORIGINAL LOGIC: The AST Scanner
-#     for source_file in changed_files:
-#         if not source_file.endswith(".py") or not os.path.exists(source_file):
-#             continue
-            
-#         # [Scanning math_utils.py for functions...]
-#         with open(source_file, "r") as f:
-#             tree = ast.parse(f.read())
-            
-#         functions = [n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
-        
-#         # [Checking if test_math_utils.py exists and has those functions...]
-#         test_file = f"tests/test_{source_file}"
-#         if not os.path.exists(test_file):
-#             missing_tests.extend(functions)
-#         else:
-#             with open(test_file, "r") as f:
-#                 test_content = f.read()
-#                 for func in functions:
-#                     if f"test_{func}" not in test_content:
-#                         missing_tests.append(func)
+Evaluates coverage risk for PR files by checking whether changed Python source files
+have corresponding tests and whether tests were removed.
+"""
 
-#     # 3. PRism Rules: Calculate Score & Status
-#     risk_score = 0
-#     status = "pass"
-    
-#     if missing_tests:
-#         # Rules: +25 modifier for missing unit tests
-#         risk_score = 25 
-#         status = "warning"
-#         findings.append(f"Gap detected! Missing tests for: {missing_tests}")
-        
-#         # Trigger the "Agentic" part (Copilot)
-#         # Note: We keep the install message check you liked!
-#         try:
-#             subprocess.run(["copilot", "--prompt", f"Write pytest tests for the functions: {missing_tests}"], check=False)
-#             findings.append("✅ Copilot suggested a fix. Manual review required.")
-#         except:
-#             findings.append("❌ Copilot CLI not found. Manual test generation needed.")
-
-#     # 4. Data Contract Compliance: Return the validated object
-#     return AgentResult(
-#         agent_name="Coverage Agent",
-#         risk_score_modifier=max(0, min(100, risk_score)), # Rule: Clamp 0-100
-#         status=status, # Rule: Literal "pass", "warning", "critical"
-#         findings=findings,
-#         recommended_action="Review auto-generated tests and merge into the PR."
-#     )
-############
+from __future__ import annotations
 
 import os
+from pathlib import PurePosixPath
+
 import httpx
-from typing import Any
+
 from agents.shared.data_contract import AgentResult
 
 AGENT_NAME = "Coverage Agent"
 
-async def run(pr_number: int, repo: str) -> AgentResult:
+
+def _expected_test_path(source_path: str) -> str:
+    """Map a source path to a conventional test path.
+
+    Examples:
+    - agents/timing_agent/__init__.py -> tests/test_timing_agent.py
+    - agents/foo/bar.py -> tests/test_bar.py
     """
-    Evaluates test coverage risk by checking if changed files have matching tests.
-    If coverage is low, it triggers a GitHub issue for Copilot remediation.
-    """
-    github_token = os.environ.get("GITHUB_TOKEN")
-    headers = {
-        "Authorization": f"Bearer {github_token}",
-        "Accept": "application/vnd.github+json"
+    p = PurePosixPath(source_path)
+    if p.name == "__init__.py":
+        target_name = p.parent.name
+    else:
+        target_name = p.stem
+    return f"tests/test_{target_name}.py"
+
+
+async def _create_autofix_issue(
+    client: httpx.AsyncClient,
+    repo: str,
+    pr_number: int,
+    files_needing_tests: list[str],
+) -> None:
+    """Create a GitHub issue asking Copilot to generate missing tests."""
+    if not files_needing_tests:
+        return
+
+    issue_url = f"https://api.github.com/repos/{repo}/issues"
+    body_lines = [
+        "Please generate tests for the following files:",
+        "",
+        *[f"- {path}" for path in files_needing_tests],
+    ]
+    payload = {
+        "title": f"PRism: Auto-generate tests for PR #{pr_number}",
+        "body": "\n".join(body_lines),
     }
-    
-    findings = []
+    # Best-effort only; coverage analysis should not fail if issue creation fails.
+    await client.post(issue_url, json=payload)
+
+
+async def run(pr_number: int, repo: str) -> AgentResult:
+    """Run coverage risk checks for a pull request."""
+    findings: list[str] = []
+    files_needing_tests: list[str] = []
     risk_score = 0
-    
-    async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
-        try:
-            # a) Fetch the PR's changed files
+
+    try:
+        token = os.environ["GITHUB_TOKEN"]
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+        }
+
+        async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
             files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
-            resp = await client.get(files_url)
-            resp.raise_for_status()
-            changed_files = resp.json()
+            response = await client.get(files_url)
+            response.raise_for_status()
+            changed_files = response.json()
 
-            for file_data in changed_files:
-                filename = file_data["filename"]
-                status = file_data["status"] # 'added', 'modified', 'removed'
+            for changed in changed_files:
+                filename = str(changed.get("filename", ""))
+                file_status = str(changed.get("status", ""))
 
-                # Skip non-python files
-                if not filename.endswith(".py"):
+                if not filename:
                     continue
 
-                # b) logic: check for matching test file
-                # Path logic: agents/foo.py -> tests/test_foo.py
-                path_parts = filename.split("/")
-                base_name = path_parts[-1]
-                test_filename = f"tests/test_{base_name}"
-                
-                # Check if it's a deleted test file
-                if "tests/" in filename and status == "removed":
+                # Removed tests are a direct regression signal.
+                if filename.startswith("tests/test_") and file_status == "removed":
                     risk_score += 25
                     findings.append(f"Deleted test file: {filename}")
+                    files_needing_tests.append(filename)
                     continue
 
-                # Check existence of corresponding test for source files
-                if "tests/" not in filename:
-                    check_url = f"https://api.github.com/repos/{repo}/contents/{test_filename}"
-                    test_resp = await client.get(check_url)
-                    
-                    if test_resp.status_code == 404:
-                        # c) Risk Calculation
-                        risk_score += 15
-                        findings.append(f"No test file found for {filename} (Expected {test_filename})")
+                # Only evaluate Python source files outside the tests folder.
+                if not filename.endswith(".py") or filename.startswith("tests/"):
+                    continue
 
-            # d) Final Score Caps and Status
+                expected_test = _expected_test_path(filename)
+                contents_url = f"https://api.github.com/repos/{repo}/contents/{expected_test}"
+                test_response = await client.get(contents_url)
+
+                if test_response.status_code == 404:
+                    risk_score += 15
+                    findings.append(f"No test file found for {filename}")
+                    files_needing_tests.append(filename)
+                elif test_response.is_error:
+                    test_response.raise_for_status()
+
             risk_score = min(risk_score, 100)
-            
+
             if risk_score <= 20:
-                agent_status = "pass"
-                recommended_action = "Coverage looks good. Proceed."
+                status = "pass"
+                recommended_action = "Coverage checks passed. Proceed with PR review."
             elif risk_score <= 50:
-                agent_status = "warning"
-                recommended_action = "Test coverage is lacking for some files. Review suggested."
-                await _trigger_copilot_issue(client, repo, pr_number, findings)
+                status = "warning"
+                recommended_action = "Add or restore missing tests before merging."
+                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
             else:
-                agent_status = "critical"
-                recommended_action = "Significant coverage regression. Blocking deployment."
-                await _trigger_copilot_issue(client, repo, pr_number, findings)
+                status = "critical"
+                recommended_action = "Block merge until missing/deleted tests are addressed."
+                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
 
             if not findings:
-                findings.append("All changed files have corresponding test files.")
+                findings.append("All changed Python files have corresponding tests.")
 
             return AgentResult(
                 agent_name=AGENT_NAME,
                 risk_score_modifier=risk_score,
-                status=agent_status,
+                status=status,
                 findings=findings,
-                recommended_action=recommended_action
+                recommended_action=recommended_action,
             )
 
-        except Exception as e:
-            # Graceful fallback per requirements
-            return AgentResult(
-                agent_name=AGENT_NAME,
-                risk_score_modifier=50,
-                status="warning",
-                findings=[f"API Error: {str(e)}"],
-                recommended_action="Manual coverage check required due to API failure."
-            )
-
-async def _trigger_copilot_issue(client: httpx.AsyncClient, repo: str, pr_number: int, findings: list[str]):
-    """Stretch Goal: Create a GitHub Issue for Copilot to fix tests."""
-    issue_url = f"https://api.github.com/repos/{repo}/issues"
-    body = "The following files require unit tests to maintain coverage:\n\n" + "\n".join(findings)
-    
-    payload = {
-        "title": f"PRism: Auto-generate tests for PR #{pr_number}",
-        "body": body,
-        "labels": ["copilot-remediate"]
-    }
-    await client.post(issue_url, json=payload)
+    except Exception as exc:  # noqa: BLE001 - return warning fallback by design
+        return AgentResult(
+            agent_name=AGENT_NAME,
+            risk_score_modifier=50,
+            status="warning",
+            findings=[f"Coverage API check failed: {exc}"],
+            recommended_action="Manual coverage verification required due to API failure.",
+        )
