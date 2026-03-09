@@ -32,3 +32,6 @@ opentelemetry-instrumentation-openai-v2
 
 # ── MCP Client (Diff Analyst) ──
 mcp
+
+# ── Testing ──
+pytest-asyncio
