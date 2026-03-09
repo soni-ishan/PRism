@@ -22,7 +22,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   // 2. Pass it to your SidebarProvider
-  const sidebarProvider = new SidebarProvider(context.extensionUri, clientId);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, clientId!);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
