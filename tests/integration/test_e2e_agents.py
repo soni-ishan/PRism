@@ -374,18 +374,15 @@ class TestHistoryAgentE2E:
 
 class TestCoverageAgentFallback:
     """
-    The Coverage Agent module is currently a stub (empty __init__.py).
-    The orchestrator's fallback mechanism must catch the ImportError and
-    return a conservative AgentResult — verify that contract here.
+    The Coverage Agent now has a real run() implementation.
+    These tests verify the orchestrator's fallback mechanism still works
+    when the agent raises an unexpected error.
     """
 
-    def test_coverage_agent_module_lacks_run(self):
+    def test_coverage_agent_module_has_run(self):
         import agents.coverage_agent as ca
 
-        assert not hasattr(ca, "run"), (
-            "coverage_agent now has a run() — update this test and "
-            "add real E2E coverage tests."
-        )
+        assert hasattr(ca, "run"), "coverage_agent must expose a run() function"
 
     def test_orchestrator_returns_fallback_for_missing_coverage(self):
         from agents.orchestrator import _make_fallback

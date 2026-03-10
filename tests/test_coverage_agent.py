@@ -49,7 +49,7 @@ class MockAsyncClient:
 
 @pytest.fixture(autouse=True)
 def github_token_env():
-    with patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"}, clear=False):
+    with patch.dict(os.environ, {"GH_PAT": "test-token"}, clear=False):
         yield
 
 
