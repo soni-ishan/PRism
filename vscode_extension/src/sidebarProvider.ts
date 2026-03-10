@@ -91,8 +91,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _latestVerdict: VerdictReport = MOCK_VERDICT;
   private _cachedBranch: string | undefined;
   private _cachedRepo: string | null = null;
+  private clientId: string;
 
-  constructor(private readonly _extensionUri: vscode.Uri) {}
+  constructor(private readonly _extensionUri: vscode.Uri, clientId: string) {
+    this.clientId = clientId;
+  }
 
   // Called by VS Code when the sidebar is first revealed
   public resolveWebviewView(
@@ -196,9 +199,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       const response = await fetch(`${baseUrl}/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Client-ID": this.clientId,
+        },
         body: JSON.stringify(payload),
       });
+
+      if (response.status === 402) {
+        vscode.window.showWarningMessage(
+          "PRism Trial Exhausted! Please configure your Enterprise Server URL to continue.",
+          "Open Settings"
+        ).then(selection => {
+          if (selection === "Open Settings") {
+            vscode.commands.executeCommand('workbench.action.openSettings', 'prism.serverUrl');
+          }
+        });
+        return null;
+      }
 
       if (!response.ok) {
         console.warn(`PRism backend returned ${response.status}`);

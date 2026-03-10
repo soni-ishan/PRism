@@ -22,10 +22,11 @@ import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
+import time
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 
 from agents.orchestrator import PRPayload, orchestrate
@@ -53,6 +54,40 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Freemium Usage Tracker ───────────────────────────────────────────
+# In-memory tracker (For a real SaaS, this would be Redis or Postgres)
+# Tracks: { "client_uuid": {"count": int, "first_seen": float} }
+# Entries older than _USAGE_TTL_SECONDS are evicted to bound memory growth.
+USAGE_TRACKER: dict = {}
+FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+_USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30-day rolling window
+
+from typing import Optional
+
+
+def _evict_expired_usage() -> None:
+    """Remove tracker entries older than _USAGE_TTL_SECONDS to prevent unbounded growth."""
+    cutoff = time.time() - _USAGE_TTL_SECONDS
+    expired = [k for k, v in USAGE_TRACKER.items() if v.get("first_seen", 0) < cutoff]
+    for k in expired:
+        del USAGE_TRACKER[k]
+
+
+def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
+    if not x_client_id:
+        raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    _evict_expired_usage()
+    entry = USAGE_TRACKER.get(x_client_id)
+    if entry is None:
+        entry = {"count": 0, "first_seen": time.time()}
+    if entry["count"] >= FREE_TIER_LIMIT:
+        raise HTTPException(
+            status_code=402,
+            detail="Free trial exhausted. Please configure your own Enterprise PRism URL in VS Code Settings."
+        )
+    entry["count"] += 1
+    USAGE_TRACKER[x_client_id] = entry
+    return x_client_id
 
 # ── Healthcheck ──────────────────────────────────────────────────────
 
@@ -63,8 +98,12 @@ async def health():
 
 # ── Manual analysis trigger ──────────────────────────────────────────
 
+
 @app.post("/analyze")
-async def analyze(payload: PRPayload):
+async def analyze(
+    payload: PRPayload,
+    client_id: str = Depends(check_freemium_limit)
+):
     """Accept a ``PRPayload`` directly and run the full pipeline."""
     verdict = await orchestrate(payload)
 

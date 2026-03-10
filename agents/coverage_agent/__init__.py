@@ -62,7 +62,7 @@ async def run(pr_number: int, repo: str) -> AgentResult:
     risk_score = 0
 
     try:
-        token = os.environ["GITHUB_TOKEN"]
+        token = os.environ["GH_PAT"]
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",

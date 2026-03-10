@@ -9,7 +9,7 @@ httpx
 # ── Azure OpenAI & AI Services ──
 openai
 semantic-kernel>=1.0
-azure-identity==1.14.0
+azure-identity>=1.25.2
 azure-ai-projects
 azure-ai-contentsafety
 
@@ -18,9 +18,17 @@ azure-search-documents==11.4.0
 azure-monitor-query==1.2.0
 
 # ── Observability (Foundry / App Insights) ──
-opentelemetry-sdk
-opentelemetry-api
-azure-monitor-opentelemetry-exporter
+# azure-monitor-opentelemetry: full package with configure_azure_monitor()
+#   + auto-instrumentors for FastAPI, requests, etc.
+# opentelemetry-instrumentation-openai-v2: instruments the openai SDK so
+#   chat.completions.create() calls emit gen_ai.* spans visible in Foundry.
+# Version constraint: azure-monitor-opentelemetry-exporter>=1.0.0b36
+#   requires opentelemetry-sdk 1.39.x (NOT 1.40.x) due to LogData import changes.
+azure-monitor-opentelemetry>=1.8.6
+azure-monitor-opentelemetry-exporter>=1.0.0b36
+opentelemetry-sdk>=1.39.0
+opentelemetry-api>=1.39.0
+opentelemetry-instrumentation-openai-v2
 
 # ── MCP Client (Diff Analyst) ──
 mcp

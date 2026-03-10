@@ -184,7 +184,7 @@ async def _llm_enhance_brief(
             client = AsyncAzureOpenAI(
                 azure_endpoint=endpoint,
                 api_key=api_key,
-                api_version="2024-12-01-preview",
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
             )
         except Exception as exc:
             logger.warning("Failed to create OpenAI client: %s", exc)
@@ -267,7 +267,7 @@ async def _llm_enhance_playbook(
             client = AsyncAzureOpenAI(
                 azure_endpoint=endpoint,
                 api_key=api_key,
-                api_version="2024-12-01-preview",
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
             )
         except Exception as exc:
             logger.warning("Failed to create OpenAI client: %s", exc)
