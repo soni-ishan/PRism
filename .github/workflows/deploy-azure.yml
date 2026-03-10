@@ -81,7 +81,7 @@ jobs:
               "projectName": {"value": "prism"},
               "environment": {"value": "${{ github.event.inputs.environment || 'dev' }}"},
               "location": {"value": "${{ env.AZURE_LOCATION }}"},
-              "githubToken": {"value": "${{ secrets.GITHUB_TOKEN }}"},
+              "githubToken": {"value": "${{ secrets.GH_PAT }}"},
               "githubWebhookSecret": {"value": "${{ secrets.GITHUB_WEBHOOK_SECRET }}"},
               "githubRepoOwner": {"value": "${{ github.repository_owner }}"},
               "githubRepoName": {"value": "${{ github.event.repository.name }}"}

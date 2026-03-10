@@ -129,7 +129,7 @@ def get_instrumented_openai_client() -> Any | None:
         client = AsyncAzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
-            api_version="2024-12-01-preview",
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
         )
         logger.debug(
             "Instrumented AsyncAzureOpenAI client created (deployment=%s).",
