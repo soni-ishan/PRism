@@ -105,17 +105,20 @@ async def run(pr_number: int, repo: str) -> AgentResult:
 
             risk_score = min(risk_score, 100)
 
+            # Trigger Copilot autofix from 15+ risk so a single missing test
+            # still creates an issue while preserving pass/warning/critical bands.
+            if risk_score >= 15:
+                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
+
             if risk_score <= 20:
                 status = "pass"
                 recommended_action = "Coverage checks passed. Proceed with PR review."
             elif risk_score <= 50:
                 status = "warning"
                 recommended_action = "Add or restore missing tests before merging."
-                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
             else:
                 status = "critical"
                 recommended_action = "Block merge until missing/deleted tests are addressed."
-                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
 
             if not findings:
                 findings.append("All changed Python files have corresponding tests.")
