@@ -1,0 +1,78 @@
+name: PRism Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  prism-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run PRism analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python scripts/run_prism_ci.py
+
+      - name: Post PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'prism_output/risk_brief.md';
+
+            if (!fs.existsSync(path)) {
+              core.warning(`Risk brief file not found at ${path}`);
+              return;
+            }
+
+            const body = fs.readFileSync(path, 'utf8');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
+      - name: Block merge if verdict is blocked
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          verdict_path = Path("prism_output/verdict.json")
+          if not verdict_path.exists():
+              raise SystemExit("verdict.json not found")
+
+          data = json.loads(verdict_path.read_text(encoding="utf-8"))
+          decision = str(data.get("decision", "")).lower()
+
+          print(f"Decision: {decision}")
+
+          if decision == "blocked":
+              raise SystemExit(1)
+          PY
