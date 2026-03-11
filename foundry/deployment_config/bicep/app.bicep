@@ -188,7 +188,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             {
               name: 'AZURE_OPENAI_ENDPOINT'
               value: openAi.properties.endpoint
