@@ -73,6 +73,20 @@ var containerAppEnvName = '${namingPrefix}-env'
 var containerAppName = '${namingPrefix}-orchestrator'
 var orchestratorIdentityName = '${namingPrefix}-orchestrator-identity'
 
+// Optional webhook secret — only included when a non-empty value is provided
+var webhookSecretArray = empty(githubWebhookSecret) ? [] : [
+  {
+    name: 'github-webhook-secret'
+    value: githubWebhookSecret
+  }
+]
+var webhookEnvArray = empty(githubWebhookSecret) ? [] : [
+  {
+    name: 'GITHUB_WEBHOOK_SECRET'
+    secretRef: 'github-webhook-secret'
+  }
+]
+
 // ════════════════════════════════════════════════════════════════
 // EXISTING RESOURCES (created by infra.bicep in Step 1)
 // ════════════════════════════════════════════════════════════════
@@ -139,32 +153,31 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           identity: orchestratorIdentity.id
         }
       ]
-      secrets: [
-        {
-          name: 'appinsights-connection-string'
-          value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'github-token'
-          value: githubToken
-        }
-        {
-          name: 'github-webhook-secret'
-          value: githubWebhookSecret
-        }
-        {
-          name: 'openai-api-key'
-          value: openAi.listKeys().key1
-        }
-        {
-          name: 'content-safety-key'
-          value: contentSafety.listKeys().key1
-        }
-        {
-          name: 'search-admin-key'
-          value: search.listAdminKeys().primaryKey
-        }
-      ]
+      secrets: concat(
+        [
+          {
+            name: 'appinsights-connection-string'
+            value: appInsights.properties.ConnectionString
+          }
+          {
+            name: 'github-token'
+            value: githubToken
+          }
+          {
+            name: 'openai-api-key'
+            value: openAi.listKeys().key1
+          }
+          {
+            name: 'content-safety-key'
+            value: contentSafety.listKeys().key1
+          }
+          {
+            name: 'search-admin-key'
+            value: search.listAdminKeys().primaryKey
+          }
+        ],
+        webhookSecretArray
+      )
     }
     template: {
       containers: [
@@ -213,10 +226,6 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               secretRef: 'github-token'
             }
             {
-              name: 'GITHUB_WEBHOOK_SECRET'
-              secretRef: 'github-webhook-secret'
-            }
-            {
               name: 'KEY_VAULT_URL'
               value: keyVault.properties.vaultUri
             }
@@ -232,7 +241,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               name: 'GITHUB_REPO_NAME'
               value: githubRepoName
             }
-          ]
+          ], webhookEnvArray)
         }
       ]
       scale: {
