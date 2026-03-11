@@ -101,29 +101,45 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
 
         @asynccontextmanager
         async def trace_agent_call(name: str):  # type: ignore[misc]
-            yield
+            yield None
+
+    def _set_result_attrs(span: Any, result: AgentResult) -> None:
+        """Attach agent result attributes to an OTel span (no-op if span is None)."""
+        if span is None:
+            return
+        span.set_attribute("prism.agent.risk_score_modifier", result.risk_score_modifier)
+        span.set_attribute("prism.agent.status", result.status)
+        span.set_attribute("prism.agent.findings_count", len(result.findings))
 
     # Lazy imports so the Orchestrator doesn't crash if a teammate's
     # module has a transient import-time error.
     async def _run_timing() -> AgentResult:
-        async with trace_agent_call("Timing Agent"):
+        async with trace_agent_call("Timing Agent") as span:
             from agents.timing_agent import run as run_timing
-            return await run_timing(deploy_timestamp=payload.timestamp)
+            result = await run_timing(deploy_timestamp=payload.timestamp)
+            _set_result_attrs(span, result)
+            return result
 
     async def _run_diff() -> AgentResult:
-        async with trace_agent_call("Diff Analyst"):
+        async with trace_agent_call("Diff Analyst") as span:
             from agents.diff_analyst import run as run_diff
-            return await run_diff(diff=payload.diff, changed_files=payload.changed_files)
+            result = await run_diff(diff=payload.diff, changed_files=payload.changed_files)
+            _set_result_attrs(span, result)
+            return result
 
     async def _run_history() -> AgentResult:
-        async with trace_agent_call("History Agent"):
+        async with trace_agent_call("History Agent") as span:
             from agents.history_agent import run as run_history
-            return await run_history(changed_files=payload.changed_files)
+            result = await run_history(changed_files=payload.changed_files)
+            _set_result_attrs(span, result)
+            return result
 
     async def _run_coverage() -> AgentResult:
-        async with trace_agent_call("Coverage Agent"):
+        async with trace_agent_call("Coverage Agent") as span:
             from agents.coverage_agent import run as run_coverage
-            return await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
+            result = await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
+            _set_result_attrs(span, result)
+            return result
 
     agent_coros = [
         _run_diff(),
@@ -172,44 +188,69 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
         len(payload.changed_files),
     )
 
-    # 1. Fire all agents concurrently
-    agent_results = await _import_and_run_agents(payload)
-
-    # 2. Pass to Verdict Agent
+    # Lazy import of root-span helper — no-op fallback if Foundry unavailable
     try:
-        from agents.verdict_agent import run as run_verdict
-    except (ImportError, AttributeError):
-        logger.warning("Verdict Agent unavailable — returning blocked fallback.")
-        return VerdictReport(
-            confidence_score=0,
-            decision="blocked",
-            risk_brief="Verdict Agent is not yet implemented.",
-            agent_results=agent_results,
+        from foundry.deployment_config import trace_orchestrate, trace_agent_call as _trace_verdict
+    except ImportError:
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def trace_orchestrate(pr_number: int, repo: str):  # type: ignore[misc]
+            yield None
+
+        @asynccontextmanager
+        async def _trace_verdict(name: str):  # type: ignore[misc]
+            yield None
+
+    async with trace_orchestrate(payload.pr_number, payload.repo) as root_span:
+        # 1. Fire all agents concurrently
+        agent_results = await _import_and_run_agents(payload)
+
+        # 2. Pass to Verdict Agent
+        try:
+            from agents.verdict_agent import run as run_verdict
+        except (ImportError, AttributeError):
+            logger.warning("Verdict Agent unavailable — returning blocked fallback.")
+            return VerdictReport(
+                confidence_score=0,
+                decision="blocked",
+                risk_brief="Verdict Agent is not yet implemented.",
+                agent_results=agent_results,
+            )
+
+        try:
+            async with _trace_verdict("Verdict Agent") as verdict_span:
+                verdict = await run_verdict(
+                    agent_results=agent_results,
+                    pr_payload=payload.model_dump(),
+                )
+                if verdict_span is not None:
+                    verdict_span.set_attribute("prism.agent.confidence_score", verdict.confidence_score)
+                    verdict_span.set_attribute("prism.agent.decision", verdict.decision)
+        except Exception as exc:
+            logger.exception("Verdict Agent failed: %s", exc)
+            return VerdictReport(
+                confidence_score=0,
+                decision="blocked",
+                risk_brief="Verdict Agent encountered an internal error while generating a verdict.",
+                agent_results=agent_results,
+            )
+
+        # Attach final pipeline outcome to the root span
+        if root_span is not None:
+            root_span.set_attribute("prism.confidence_score", verdict.confidence_score)
+            root_span.set_attribute("prism.decision", verdict.decision)
+            root_span.set_attribute("prism.changed_files_count", len(payload.changed_files))
+
+        logger.info(
+            "PRism verdict for %s PR #%d: score=%d decision=%s",
+            payload.repo,
+            payload.pr_number,
+            verdict.confidence_score,
+            verdict.decision,
         )
 
-    try:
-        verdict = await run_verdict(
-            agent_results=agent_results,
-            pr_payload=payload.model_dump(),
-        )
-    except Exception as exc:
-        logger.exception("Verdict Agent failed: %s", exc)
-        return VerdictReport(
-            confidence_score=0,
-            decision="blocked",
-            risk_brief="Verdict Agent encountered an internal error while generating a verdict.",
-            agent_results=agent_results,
-        )
-
-    logger.info(
-        "PRism verdict for %s PR #%d: score=%d decision=%s",
-        payload.repo,
-        payload.pr_number,
-        verdict.confidence_score,
-        verdict.decision,
-    )
-
-    return verdict
+        return verdict
 
 
 # ── Semantic Kernel Integration ──────────────────────────────────────

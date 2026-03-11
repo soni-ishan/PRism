@@ -269,18 +269,21 @@ def _get_tracer():
 
 @asynccontextmanager
 async def trace_agent_call(agent_name: str):
-    """Async context manager that records a span for a single agent invocation.
+    """Async context manager that wraps a single agent invocation in an OTel span.
 
-    Usage::
+    Yields the span so callers can attach result attributes after the agent
+    returns::
 
-        async with trace_agent_call("Timing Agent"):
+        async with trace_agent_call("Timing Agent") as span:
             result = await run_timing(...)
+            if span is not None:
+                span.set_attribute("prism.agent.risk_score_modifier", result.risk_score_modifier)
 
-    If tracing is not initialised, the block executes with no overhead.
+    If tracing is not initialised, yields ``None`` with no overhead.
     """
     tracer = _get_tracer()
     if tracer is None:
-        yield
+        yield None
         return
 
     with tracer.start_as_current_span(
@@ -292,7 +295,7 @@ async def trace_agent_call(agent_name: str):
     ) as span:
         start = time.monotonic()
         try:
-            yield
+            yield span
         except Exception as exc:
             span.set_attribute("prism.agent.error", str(exc))
             span.set_status(
@@ -302,6 +305,41 @@ async def trace_agent_call(agent_name: str):
         finally:
             elapsed_ms = (time.monotonic() - start) * 1000
             span.set_attribute("prism.agent.latency_ms", elapsed_ms)
+
+
+@asynccontextmanager
+async def trace_orchestrate(pr_number: int, repo: str):
+    """Root span for the entire PRism orchestration pipeline.
+
+    Yields the span so the caller can attach ``confidence_score`` and
+    ``decision`` after the verdict is produced::
+
+        async with trace_orchestrate(payload.pr_number, payload.repo) as span:
+            verdict = await ...
+            if span is not None:
+                span.set_attribute("prism.confidence_score", verdict.confidence_score)
+
+    Yields ``None`` when tracing is not initialised.
+    """
+    tracer = _get_tracer()
+    if tracer is None:
+        yield None
+        return
+
+    with tracer.start_as_current_span(
+        "prism.orchestrate",
+        attributes={
+            "prism.pr_number": pr_number,
+            "prism.repo": repo,
+            "prism.component": "orchestrator",
+        },
+    ) as span:
+        try:
+            yield span
+        except Exception as exc:
+            span.set_attribute("prism.orchestrate.error", str(exc))
+            span.set_status(_make_span_status("ERROR", str(exc)))
+            raise
 
 
 def _make_span_status(status_code: str, description: str = ""):
