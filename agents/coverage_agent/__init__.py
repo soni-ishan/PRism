@@ -42,6 +42,23 @@ async def _get_pr_branch(client: httpx.AsyncClient, repo: str, pr_number: int) -
         return "unknown"
 
 
+async def _issue_already_exists(
+    client: httpx.AsyncClient,
+    repo: str,
+    pr_number: int,
+) -> bool:
+    """Return True if an open autofix issue for this PR already exists."""
+    url = f"https://api.github.com/repos/{repo}/issues"
+    try:
+        resp = await client.get(url, params={"state": "open", "per_page": 50})
+        if resp.is_error:
+            return False
+        title = f"[PRism] Generate missing tests for PR #{pr_number}"
+        return any(issue.get("title") == title for issue in resp.json())
+    except Exception:
+        return False
+
+
 async def _create_autofix_issue(
     client: httpx.AsyncClient,
     repo: str,
@@ -59,6 +76,10 @@ async def _create_autofix_issue(
     3. Open a new pull request with the generated tests.
     """
     if not files_needing_tests:
+        return
+
+    # Deduplication: don't create a second issue if one already exists for this PR.
+    if await _issue_already_exists(client, repo, pr_number):
         return
 
     # Build expected test paths: source files map to conventional test paths;

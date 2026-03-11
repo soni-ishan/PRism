@@ -34,6 +34,7 @@ from foundry.deployment_config import (
     reset_tracing,
     setup_tracing,
     trace_agent_call,
+    trace_orchestrate,
 )
 
 
@@ -216,6 +217,61 @@ class TestTraceAgentCall:
                 raise ValueError("test error")
 
         with pytest.raises(ValueError, match="test error"):
+            asyncio.run(_inner())
+
+    def test_yields_none_when_tracing_disabled(self):
+        """Should yield None (not the span) when tracing is not initialised."""
+        received: list = []
+
+        async def _inner():
+            async with trace_agent_call("Timing Agent") as span:
+                received.append(span)
+
+        asyncio.run(_inner())
+        assert received == [None]
+
+
+# ── TestTraceOrchestrate ──────────────────────────────────────────────
+
+class TestTraceOrchestrate:
+    """Tests for the trace_orchestrate root-span context manager."""
+
+    def setup_method(self):
+        reset_tracing()
+
+    def teardown_method(self):
+        reset_tracing()
+
+    def test_yields_none_when_tracing_disabled(self):
+        """Should yield None when tracing is not initialised."""
+        received: list = []
+
+        async def _inner():
+            async with trace_orchestrate(42, "owner/repo") as span:
+                received.append(span)
+
+        asyncio.run(_inner())
+        assert received == [None]
+
+    def test_block_executes_when_tracing_disabled(self):
+        """The wrapped block should always execute."""
+        executed = False
+
+        async def _inner():
+            nonlocal executed
+            async with trace_orchestrate(1, "owner/repo"):
+                executed = True
+
+        asyncio.run(_inner())
+        assert executed is True
+
+    def test_exception_propagates(self):
+        """Exceptions inside the context manager should propagate."""
+        async def _inner():
+            async with trace_orchestrate(1, "owner/repo"):
+                raise RuntimeError("pipeline error")
+
+        with pytest.raises(RuntimeError, match="pipeline error"):
             asyncio.run(_inner())
 
 

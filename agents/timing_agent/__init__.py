@@ -142,10 +142,10 @@ async def run(
     if deploy_timestamp is None:
         deploy_timestamp = datetime.now(timezone.utc)
 
-    # Ensure timezone-aware and normalised to UTC
+    # Ensure timezone-aware — preserve original timezone so time-of-day risk
+    # and display reflect the deployer's local time, not server UTC.
     if deploy_timestamp.tzinfo is None:
         deploy_timestamp = deploy_timestamp.replace(tzinfo=timezone.utc)
-    deploy_timestamp = deploy_timestamp.astimezone(timezone.utc)
 
     findings: list[str] = []
     total_modifier = 0

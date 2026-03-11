@@ -211,6 +211,10 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
             from agents.verdict_agent import run as run_verdict
         except (ImportError, AttributeError):
             logger.warning("Verdict Agent unavailable — returning blocked fallback.")
+            if root_span is not None:
+                root_span.set_attribute("prism.confidence_score", 0)
+                root_span.set_attribute("prism.decision", "blocked")
+                root_span.set_attribute("prism.error", "Verdict Agent unavailable")
             return VerdictReport(
                 confidence_score=0,
                 decision="blocked",
@@ -229,6 +233,10 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
                     verdict_span.set_attribute("prism.agent.decision", verdict.decision)
         except Exception as exc:
             logger.exception("Verdict Agent failed: %s", exc)
+            if root_span is not None:
+                root_span.set_attribute("prism.confidence_score", 0)
+                root_span.set_attribute("prism.decision", "blocked")
+                root_span.set_attribute("prism.error", str(exc))
             return VerdictReport(
                 confidence_score=0,
                 decision="blocked",
