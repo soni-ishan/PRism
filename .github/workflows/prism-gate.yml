@@ -1,4 +1,11 @@
 name: PRism Gate
+# ──────────────────────────────────────────────────────────────────
+# Zero-setup AI risk gate — no Python, no dependencies, no checkout.
+# Just add this file to your repo and set the GH_PAT secret.
+#
+# Required secret (repo Settings → Secrets → Actions):
+#   GH_PAT  — a GitHub PAT with repo scope (read + write PRs/issues)
+# ──────────────────────────────────────────────────────────────────
 
 on:
   pull_request:
@@ -14,65 +21,100 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
       - name: Run PRism analysis
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-          GITHUB_OWNER: ${{ github.repository_owner }}
-          GITHUB_REPO: ${{ github.event.repository.name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          python scripts/run_prism_ci.py
-
-      - name: Post PR comment
-        if: always()
+        id: prism
         uses: actions/github-script@v7
+        env:
+          PRISM_URL: https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io
+          GH_PAT: ${{ secrets.GH_PAT }}
         with:
           script: |
-            const fs = require('fs');
-            const path = 'prism_output/risk_brief.md';
+            const pr       = context.payload.pull_request;
+            const repo     = context.repo.owner + '/' + context.repo.repo;
+            const clientId = `gha-${context.repo.owner}-${context.repo.repo}`;
 
-            if (!fs.existsSync(path)) {
-              core.warning(`Risk brief file not found at ${path}`);
+            // Fetch the PR diff to pass to PRism
+            let diff = '';
+            try {
+              const diffResp = await fetch(
+                `https://api.github.com/repos/${repo}/pulls/${pr.number}`,
+                { headers: { Authorization: `Bearer ${process.env.GH_PAT}`,
+                             Accept: 'application/vnd.github.v3.diff' } }
+              );
+              if (diffResp.ok) diff = await diffResp.text();
+            } catch (_) {}
+
+            // Fetch changed file list
+            let changedFiles = [];
+            try {
+              const filesResp = await fetch(
+                `https://api.github.com/repos/${repo}/pulls/${pr.number}/files?per_page=100`,
+                { headers: { Authorization: `Bearer ${process.env.GH_PAT}`,
+                             Accept: 'application/vnd.github+json' } }
+              );
+              if (filesResp.ok) {
+                const files = await filesResp.json();
+                changedFiles = files.map(f => f.filename);
+              }
+            } catch (_) {}
+
+            // Call the live PRism endpoint
+            const resp = await fetch(`${process.env.PRISM_URL}/analyze`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Client-ID': clientId,
+              },
+              body: JSON.stringify({
+                pr_number:     pr.number,
+                repo:          repo,
+                changed_files: changedFiles,
+                diff:          diff,
+                timestamp:     new Date().toISOString(),
+              }),
+            });
+
+            if (!resp.ok) {
+              core.setFailed(`PRism returned HTTP ${resp.status}`);
               return;
             }
 
-            const body = fs.readFileSync(path, 'utf8');
+            const verdict = await resp.json();
+            core.setOutput('decision',         verdict.decision);
+            core.setOutput('confidence_score', String(verdict.confidence_score));
 
+            // Build PR comment
+            const tag    = verdict.decision === 'greenlight' ? '✅ GREENLIGHT' : '🚫 BLOCKED';
+            const score  = verdict.confidence_score;
+            const emojis = { pass: '✅', warning: '⚠️', critical: '🚫' };
+
+            let table = '| Agent | Status | Risk | Key Finding |\n|-------|--------|------|-------------|\n';
+            for (const r of (verdict.agent_results || [])) {
+              const e    = emojis[r.status] || '❓';
+              const find = (r.findings?.[0] || '—').substring(0, 80);
+              table += `| ${r.agent_name} | ${e} ${r.status} | ${r.risk_score_modifier} | ${find} |\n`;
+            }
+
+            let body = `## PRism Deployment Risk Analysis\n\n**Verdict:** ${tag} &nbsp;|&nbsp; **Confidence Score:** \`${score} / 100\`\n\n${table}`;
+
+            if (verdict.risk_brief) {
+              body += `\n<details><summary>📋 Full Risk Brief</summary>\n\n${verdict.risk_brief}\n\n</details>`;
+            }
+            if (verdict.rollback_playbook) {
+              body += `\n\n<details><summary>🔄 Rollback Playbook</summary>\n\n${verdict.rollback_playbook}\n\n</details>`;
+            }
+            body += `\n\n---\n*Generated by [PRism](https://github.com/soni-ishan/PRism)*`;
+
+            // Post comment on the PR
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: pr.number,
+              body,
             });
 
       - name: Block merge if verdict is blocked
+        if: steps.prism.outputs.decision == 'blocked'
         run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          verdict_path = Path("prism_output/verdict.json")
-          if not verdict_path.exists():
-              raise SystemExit("verdict.json not found")
-
-          data = json.loads(verdict_path.read_text(encoding="utf-8"))
-          decision = str(data.get("decision", "")).lower()
-
-          print(f"Decision: {decision}")
-
-          if decision == "blocked":
-              raise SystemExit(1)
-          PY
+          echo "PRism score: ${{ steps.prism.outputs.confidence_score }} — BLOCKED"
+          exit 1

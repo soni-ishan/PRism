@@ -62,8 +62,8 @@
       "properties": {
         "prism.serverUrl": {
           "type": "string",
-          "default": "http://localhost:8000",
-          "description": "URL of the PRism FastAPI backend server."
+          "default": "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
+          "description": "URL of the PRism FastAPI backend server.  Defaults to the hosted PRism instance — no setup needed."
         },
         "prism.autoRefresh": {
           "type": "boolean",
