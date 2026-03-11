@@ -203,6 +203,7 @@ jobs:
       # ════════════════════════════════════════════════════════════
       
       - name: Install Azure Functions Core Tools
+        if: env.FUNCTION_APP_NAME != 'not-deployed'
         run: |
           wget -q https://packages.microsoft.com/config/ubuntu/20.04/packages-microsoft-prod.deb
           sudo dpkg -i packages-microsoft-prod.deb
@@ -210,11 +211,13 @@ jobs:
           sudo apt-get install azure-functions-core-tools-4 -y
       
       - name: Install Python Dependencies
+        if: env.FUNCTION_APP_NAME != 'not-deployed'
         working-directory: mcp_servers/azure_mcp_server
         run: |
           pip install -r requirements.txt
       
       - name: Deploy Function App
+        if: env.FUNCTION_APP_NAME != 'not-deployed'
         working-directory: mcp_servers/azure_mcp_server
         run: |
           func azure functionapp publish ${{ env.FUNCTION_APP_NAME }} --python
