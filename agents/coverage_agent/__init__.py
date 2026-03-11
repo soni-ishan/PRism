@@ -31,28 +31,95 @@ def _expected_test_path(source_path: str) -> str:
     return f"tests/test_{target_name}.py"
 
 
+async def _get_pr_branch(client: httpx.AsyncClient, repo: str, pr_number: int) -> str:
+    """Fetch the head branch name of a pull request."""
+    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json().get("head", {}).get("ref", "unknown")
+    except Exception:
+        return "unknown"
+
+
 async def _create_autofix_issue(
     client: httpx.AsyncClient,
     repo: str,
     pr_number: int,
     files_needing_tests: list[str],
+    pr_branch: str,
 ) -> None:
-    """Create a GitHub issue asking Copilot to generate missing tests."""
+    """Create a GitHub issue and assign it to the Copilot coding agent.
+
+    Assigning to ``copilot`` is what **actually triggers** GitHub Copilot
+    coding agent to start working.  The agent will:
+
+    1. Check out ``pr_branch``.
+    2. Write the missing test files.
+    3. Open a new pull request with the generated tests.
+    """
     if not files_needing_tests:
         return
 
+    # Build expected test paths only for source files (not already-deleted test files)
+    source_files = [f for f in files_needing_tests if not f.startswith("tests/")]
+    expected_tests = [_expected_test_path(f) for f in source_files]
+
+    files_list = "\n".join(f"- `{path}`" for path in files_needing_tests)
+    tests_list = (
+        "\n".join(f"- `{path}`" for path in expected_tests)
+        if expected_tests
+        else "(see files listed above)"
+    )
+
+    body = f"""\
+## Task: Generate Missing Tests for PR #{pr_number}
+
+@github-copilot Please generate pytest unit tests for the Python source files listed \
+below. These files were changed in PR #{pr_number} (branch: `{pr_branch}`) but are \
+missing corresponding test coverage.
+
+### Files that need tests
+{files_list}
+
+### Expected test file paths
+{tests_list}
+
+### Instructions
+1. Check out branch `{pr_branch}` as the base for your changes.
+2. Create each missing test file at the path shown above under **Expected test file paths**.
+3. Write comprehensive unit tests using `pytest` and `pytest-asyncio` for async functions.
+4. Mock all external I/O (GitHub API calls, Azure SDK calls, HTTP requests) with \
+`unittest.mock.patch` or `pytest-mock`.
+5. Each test module should import the corresponding source module and cover the public \
+`run()` function plus key helpers.
+6. Open a new pull request targeting the same base branch as PR #{pr_number} with a \
+title like `tests: add coverage for PR #{pr_number}`.
+
+### Context
+This repository is **PRism** — a multi-agent AI deployment risk pipeline. \
+Each agent exposes an async `run()` function as its public API. \
+Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictReport`)."""
+
     issue_url = f"https://api.github.com/repos/{repo}/issues"
-    body_lines = [
-        "Please generate tests for the following files:",
-        "",
-        *[f"- {path}" for path in files_needing_tests],
-    ]
-    payload = {
-        "title": f"PRism: Auto-generate tests for PR #{pr_number}",
-        "body": "\n".join(body_lines),
+    issue_payload = {
+        "title": f"[PRism] Generate missing tests for PR #{pr_number}",
+        "body": body,
     }
-    # Best-effort only; coverage analysis should not fail if issue creation fails.
-    await client.post(issue_url, json=payload)
+
+    # Step 1: Create the issue — best-effort, must not crash the pipeline.
+    resp = await client.post(issue_url, json=issue_payload)
+    if resp.is_error:
+        return
+
+    issue_number = resp.json().get("number")
+    if not issue_number:
+        return
+
+    # Step 2: Assign to the GitHub Copilot coding agent.
+    # This is the call that *triggers* Copilot to start working on the task.
+    assignees_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
+    await client.post(assignees_url, json={"assignees": ["copilot"]})
 
 
 async def run(pr_number: int, repo: str) -> AgentResult:
@@ -108,7 +175,10 @@ async def run(pr_number: int, repo: str) -> AgentResult:
             # Trigger Copilot autofix from 15+ risk so a single missing test
             # still creates an issue while preserving pass/warning/critical bands.
             if risk_score >= 15:
-                await _create_autofix_issue(client, repo, pr_number, files_needing_tests)
+                pr_branch = await _get_pr_branch(client, repo, pr_number)
+                await _create_autofix_issue(
+                    client, repo, pr_number, files_needing_tests, pr_branch
+                )
 
             if risk_score <= 20:
                 status = "pass"

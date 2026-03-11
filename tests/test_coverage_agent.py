@@ -93,6 +93,7 @@ async def test_some_files_missing_tests_warning_status():
         f"https://api.github.com/repos/{repo}/contents/tests/test_diff_agent.py": MockResponse(200, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_agent.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_server.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/pulls/2": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
     }
     post_routes = {
         f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 123}),
@@ -108,8 +109,10 @@ async def test_some_files_missing_tests_warning_status():
     assert result.status == "warning"
     assert result.risk_score_modifier == 30
     assert any("No test file found" in finding for finding in result.findings)
-    assert len(mock_client.post_calls) == 1
+    # Two POST calls: (1) create issue, (2) assign to Copilot
+    assert len(mock_client.post_calls) == 2
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
+    assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
 @pytest.mark.asyncio
@@ -127,6 +130,7 @@ async def test_many_files_missing_tests_critical_status():
         f"https://api.github.com/repos/{repo}/contents/tests/test_b.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_c.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_d.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/pulls/3": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
     }
     post_routes = {
         f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 321}),
@@ -141,7 +145,9 @@ async def test_many_files_missing_tests_critical_status():
 
     assert result.status == "critical"
     assert result.risk_score_modifier == 60
-    assert len(mock_client.post_calls) == 1
+    # Two POST calls: (1) create issue, (2) assign to Copilot
+    assert len(mock_client.post_calls) == 2
+    assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
 @pytest.mark.asyncio
@@ -153,17 +159,23 @@ async def test_single_missing_test_file_triggers_issue_creation():
             [{"filename": "agents/coverage_agent/__init__.py", "status": "modified"}],
         ),
         f"https://api.github.com/repos/{repo}/contents/tests/test_coverage_agent.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/pulls/5": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+    }
+    post_routes = {
+        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 456}),
     }
 
-    mock_client = MockAsyncClient(get_routes)
+    mock_client = MockAsyncClient(get_routes, post_routes)
     with patch("agents.coverage_agent.httpx.AsyncClient", return_value=mock_client):
         result = await run(pr_number=5, repo=repo)
 
     # Risk is 15 for one missing test file, and this now triggers issue creation.
     assert result.status == "pass"
     assert result.risk_score_modifier == 15
-    assert len(mock_client.post_calls) == 1
+    # Two POST calls: (1) create issue, (2) assign to Copilot
+    assert len(mock_client.post_calls) == 2
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
+    assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
 @pytest.mark.asyncio
@@ -174,15 +186,21 @@ async def test_removed_test_file_triggers_warning_and_issue_creation():
             200,
             [{"filename": "tests/test_orchestrator.py", "status": "removed"}],
         ),
+        f"https://api.github.com/repos/{repo}/pulls/6": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+    }
+    post_routes = {
+        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 789}),
     }
 
-    mock_client = MockAsyncClient(get_routes)
+    mock_client = MockAsyncClient(get_routes, post_routes)
     with patch("agents.coverage_agent.httpx.AsyncClient", return_value=mock_client):
         result = await run(pr_number=6, repo=repo)
 
     assert result.status == "warning"
     assert result.risk_score_modifier == 25
-    assert len(mock_client.post_calls) == 1
+    # Two POST calls: (1) create issue, (2) assign to Copilot
+    assert len(mock_client.post_calls) == 2
+    assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
 @pytest.mark.asyncio
