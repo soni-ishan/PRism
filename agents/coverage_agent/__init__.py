@@ -144,7 +144,7 @@ Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictRe
         pass
 
 
-async def run(pr_number: int, repo: str) -> AgentResult:
+async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentResult:
     """Run coverage risk checks for a pull request."""
     findings: list[str] = []
     files_needing_tests: list[str] = []
@@ -196,7 +196,9 @@ async def run(pr_number: int, repo: str) -> AgentResult:
 
             # Trigger Copilot autofix from 15+ risk so a single missing test
             # still creates an issue while preserving pass/warning/critical bands.
-            if risk_score >= 15:
+            # skip_autofix=True is set by the CI gate to prevent duplicate issues
+            # when both the webhook and GH Actions workflow analyse the same PR.
+            if risk_score >= 15 and not skip_autofix:
                 pr_branch = await _get_pr_branch(client, repo, pr_number)
                 await _create_autofix_issue(
                     client, repo, pr_number, files_needing_tests, pr_branch

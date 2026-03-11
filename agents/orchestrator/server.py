@@ -198,6 +198,32 @@ async def _fetch_pr_details(
     return changed_files, diff
 
 
+async def _fetch_commit_timestamp(repo: str, sha: str) -> "datetime | None":
+    """Fetch the git commit author date with original timezone offset.
+
+    Uses ``GET /repos/{repo}/git/commits/{sha}`` which returns the raw git
+    author date string (e.g. ``2026-03-11T00:43:25-05:00``) preserving the
+    committer's local timezone — unlike the REST commits API which normalises
+    everything to UTC.
+    """
+    headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
+    if _GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/git/commits/{sha}",
+                headers=headers,
+            )
+            if resp.is_success:
+                date_str = resp.json().get("author", {}).get("date")
+                if date_str:
+                    return datetime.fromisoformat(date_str)
+    except Exception:
+        pass
+    return None
+
+
 def _parse_github_webhook(body: dict) -> PRPayload | None:
     """Extract a ``PRPayload`` from a raw GitHub PR webhook body.
 
@@ -216,6 +242,7 @@ def _parse_github_webhook(body: dict) -> PRPayload | None:
         changed_files=[],  # Populated later via API
         diff="",  # Populated later via API
         timestamp=datetime.now(timezone.utc),
+        head_sha=pr.get("head", {}).get("sha"),
     )
 
 
@@ -293,6 +320,12 @@ async def _run_orchestration(payload: PRPayload) -> None:
         changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
         payload.changed_files = changed_files
         payload.diff = diff
+        # Replace UTC server time with the committer's timezone-aware timestamp
+        # so the Timing Agent evaluates risk in the deployer's local time.
+        if payload.head_sha:
+            ts = await _fetch_commit_timestamp(payload.repo, payload.head_sha)
+            if ts is not None:
+                payload.timestamp = ts
     verdict = await orchestrate(payload)
 
     # Apply Foundry policy guardrails

@@ -232,3 +232,24 @@ async def test_api_failure_returns_graceful_warning_fallback():
     assert result.status == "warning"
     assert result.risk_score_modifier == 50
     assert any("failed" in finding.lower() for finding in result.findings)
+
+
+@pytest.mark.asyncio
+async def test_skip_autofix_prevents_issue_creation():
+    """CI gate passes skip_autofix=True — no GitHub issues should be created."""
+    repo = "devDays/PRism"
+    get_routes = {
+        f"https://api.github.com/repos/{repo}/pulls/10/files": MockResponse(
+            200,
+            [{"filename": "agents/coverage_agent/__init__.py", "status": "modified"}],
+        ),
+        f"https://api.github.com/repos/{repo}/contents/tests/test_coverage_agent.py": MockResponse(404, {}),
+    }
+
+    mock_client = MockAsyncClient(get_routes)
+    with patch("agents.coverage_agent.httpx.AsyncClient", return_value=mock_client):
+        result = await run(pr_number=10, repo=repo, skip_autofix=True)
+
+    assert result.risk_score_modifier == 15
+    # skip_autofix=True: no POST calls to create or assign issues
+    assert len(mock_client.post_calls) == 0

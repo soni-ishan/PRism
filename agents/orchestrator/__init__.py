@@ -67,6 +67,14 @@ class PRPayload(BaseModel):
         default=None,
         description="Deployment / PR timestamp (ISO-8601). Defaults to now.",
     )
+    head_sha: str | None = Field(
+        default=None,
+        description="Head commit SHA used to resolve timezone-aware commit timestamp from GitHub API.",
+    )
+    skip_autofix: bool = Field(
+        default=False,
+        description="If True, skip Copilot autofix issue creation. Set by CI gate to prevent duplicate issues.",
+    )
 
 
 # ── Fallback payload for crashed agents ──────────────────────────────
@@ -137,7 +145,11 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     async def _run_coverage() -> AgentResult:
         async with trace_agent_call("Coverage Agent") as span:
             from agents.coverage_agent import run as run_coverage
-            result = await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
+            result = await run_coverage(
+                pr_number=payload.pr_number,
+                repo=payload.repo,
+                skip_autofix=payload.skip_autofix,
+            )
             _set_result_attrs(span, result)
             return result
 
