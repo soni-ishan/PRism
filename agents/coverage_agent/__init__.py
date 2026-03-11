@@ -61,23 +61,21 @@ async def _create_autofix_issue(
     if not files_needing_tests:
         return
 
-    # Build expected test paths only for source files (not already-deleted test files)
+    # Build expected test paths: source files map to conventional test paths;
+    # deleted test files are included verbatim (they need to be restored).
     source_files = [f for f in files_needing_tests if not f.startswith("tests/")]
-    expected_tests = [_expected_test_path(f) for f in source_files]
+    deleted_test_files = [f for f in files_needing_tests if f.startswith("tests/")]
+    expected_tests = [_expected_test_path(f) for f in source_files] + deleted_test_files
 
     files_list = "\n".join(f"- `{path}`" for path in files_needing_tests)
-    tests_list = (
-        "\n".join(f"- `{path}`" for path in expected_tests)
-        if expected_tests
-        else "(see files listed above)"
-    )
+    tests_list = "\n".join(f"- `{path}`" for path in expected_tests)
 
     body = f"""\
 ## Task: Generate Missing Tests for PR #{pr_number}
 
-@github-copilot Please generate pytest unit tests for the Python source files listed \
-below. These files were changed in PR #{pr_number} (branch: `{pr_branch}`) but are \
-missing corresponding test coverage.
+@github-copilot The following files changed in PR #{pr_number} (branch: `{pr_branch}`) \
+are missing test coverage — either source files with no corresponding test, or test \
+files that were deleted and need to be restored.
 
 ### Files that need tests
 {files_list}
@@ -107,19 +105,22 @@ Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictRe
         "body": body,
     }
 
-    # Step 1: Create the issue — best-effort, must not crash the pipeline.
-    resp = await client.post(issue_url, json=issue_payload)
-    if resp.is_error:
-        return
+    try:
+        # Step 1: Create the issue — best-effort, must not crash the pipeline.
+        resp = await client.post(issue_url, json=issue_payload)
+        if resp.is_error:
+            return
 
-    issue_number = resp.json().get("number")
-    if not issue_number:
-        return
+        issue_number = resp.json().get("number")
+        if not issue_number:
+            return
 
-    # Step 2: Assign to the GitHub Copilot coding agent.
-    # This is the call that *triggers* Copilot to start working on the task.
-    assignees_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
-    await client.post(assignees_url, json={"assignees": ["copilot"]})
+        # Step 2: Assign to the GitHub Copilot coding agent.
+        # This is the call that *triggers* Copilot to start working on the task.
+        assignees_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
+        await client.post(assignees_url, json={"assignees": ["copilot"]})
+    except Exception:  # noqa: BLE001 - autofix is best-effort, must not corrupt coverage score
+        pass
 
 
 async def run(pr_number: int, repo: str) -> AgentResult:

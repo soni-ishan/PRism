@@ -112,6 +112,7 @@ async def test_some_files_missing_tests_warning_status():
     # Two POST calls: (1) create issue, (2) assign to Copilot
     assert len(mock_client.post_calls) == 2
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
+    assert mock_client.post_calls[1][0].endswith("/issues/123/assignees")
     assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
@@ -147,6 +148,7 @@ async def test_many_files_missing_tests_critical_status():
     assert result.risk_score_modifier == 60
     # Two POST calls: (1) create issue, (2) assign to Copilot
     assert len(mock_client.post_calls) == 2
+    assert mock_client.post_calls[1][0].endswith("/issues/321/assignees")
     assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
@@ -175,6 +177,7 @@ async def test_single_missing_test_file_triggers_issue_creation():
     # Two POST calls: (1) create issue, (2) assign to Copilot
     assert len(mock_client.post_calls) == 2
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
+    assert mock_client.post_calls[1][0].endswith("/issues/456/assignees")
     assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
@@ -200,6 +203,7 @@ async def test_removed_test_file_triggers_warning_and_issue_creation():
     assert result.risk_score_modifier == 25
     # Two POST calls: (1) create issue, (2) assign to Copilot
     assert len(mock_client.post_calls) == 2
+    assert mock_client.post_calls[1][0].endswith("/issues/789/assignees")
     assert mock_client.post_calls[1][1] == {"assignees": ["copilot"]}
 
 
