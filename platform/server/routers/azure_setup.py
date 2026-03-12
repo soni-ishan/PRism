@@ -75,7 +75,9 @@ async def azure_callback(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     access_token = token_data.get("access_token", "")
-    # Token in URL fragment (after #) — never sent to server in referrer
+    # Redirect back to frontend with token in URL *fragment* (after #)
+    # so it is never sent to the server in Referer headers or logs.
+    # The frontend strips it from the URL immediately on load.
     return RedirectResponse(
         url=f"/#azure_connected=true&azure_token={access_token}"
     )

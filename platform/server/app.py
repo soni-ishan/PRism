@@ -13,9 +13,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+# Load .env from the platform/ directory (one level up from server/)
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from .routers import azure_setup, github_setup
 
@@ -68,7 +72,7 @@ async def health() -> dict:
     """Health check — also reports the orchestrator URL this platform targets."""
     orchestrator_url = os.getenv(
         "PRISM_ORCHESTRATOR_URL",
-        "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
+        "https://nontransportable-monte-advocatory.ngrok-free.dev",
     )
     return {
         "status": "ok",

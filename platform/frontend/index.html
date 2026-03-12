@@ -50,48 +50,47 @@
           <span class="step-status" id="step1-status"></span>
         </div>
         <p class="step-desc">
-          Install the <strong>PRism GitHub App</strong> on your repository. This lets PRism
-          automatically analyse every pull request and post a risk summary as a comment.
+          Enter your <strong>GitHub Personal Access Token</strong> and target repository.
+          PRism will install a workflow file (<code>.github/workflows/prism-gate.yml</code>)
+          that automatically analyses every pull request.
         </p>
 
-        <!-- Not-yet-connected state -->
+        <!-- PAT input + repo form (not yet connected) -->
         <div id="github-connect-actions">
-          <button class="btn btn-primary" id="btnGitHubInstall" onclick="startGitHubConnect()">
-            <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-                 alt="" class="btn-icon" />
-            Install PRism on GitHub
+          <div class="form-group">
+            <label for="inputPAT" class="form-label">GitHub Personal Access Token</label>
+            <input id="inputPAT" class="text-input" type="password"
+                   placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+            <p class="hint">
+              Create a PAT at
+              <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">
+                github.com/settings/tokens ↗</a>
+              with <strong>repo</strong> scope (or use a fine-grained token with
+              <em>Contents: read &amp; write</em> permission).
+            </p>
+          </div>
+
+          <h3 class="subsection-title">Target repository</h3>
+          <div class="form-row">
+            <input id="inputOwner" class="text-input" placeholder="owner / org" />
+            <span class="form-sep">/</span>
+            <input id="inputRepo" class="text-input" placeholder="repository" />
+          </div>
+
+          <button class="btn btn-primary" id="btnInstallWorkflow" onclick="installWorkflow()">
+            Install PRism Workflow
           </button>
-          <p class="hint">
-            You will be redirected to GitHub to select which repositories to install the App on.
-            The PRism workflow file (<code>.github/workflows/prism-gate.yml</code>) will be
-            committed automatically.
-          </p>
+          <div id="workflow-install-result" class="hidden"></div>
         </div>
 
-        <!-- Connected state (hidden until connected) -->
+        <!-- Connected state (hidden until workflow installed) -->
         <div id="github-connected-panel" class="hidden">
           <div class="success-banner">
             <span>✅</span>
             <div>
-              <strong>GitHub connected!</strong>
+              <strong>Workflow installed!</strong>
               <p id="github-connected-detail" class="m0"></p>
             </div>
-          </div>
-
-          <!-- Manual workflow install (for OAuth flow) -->
-          <div id="github-workflow-section" class="hidden">
-            <h3 class="subsection-title">Install workflow into a repository</h3>
-            <p class="hint">
-              Enter the repository you want to add PRism to. The workflow file will be committed
-              automatically using your GitHub token.
-            </p>
-            <div class="form-row">
-              <input id="inputOwner" class="text-input" placeholder="owner / org" />
-              <span class="form-sep">/</span>
-              <input id="inputRepo" class="text-input" placeholder="repository" />
-              <button class="btn btn-secondary" onclick="installWorkflow()">Install Workflow</button>
-            </div>
-            <div id="workflow-install-result" class="hidden"></div>
           </div>
 
           <button class="btn btn-primary" onclick="goToStep(2)">

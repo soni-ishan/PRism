@@ -1,8 +1,8 @@
 /**
  * PRism Setup Wizard — app.js
  *
- * Manages the 3-step wizard state, handles OAuth redirect flows (reads query
- * params injected by the backend callbacks), and calls the platform API.
+ * Manages the 3-step wizard state, accepts a GitHub PAT from the user,
+ * and calls the platform API to install the workflow.
  */
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -10,9 +10,8 @@ const state = {
   currentStep: 1,
   github: {
     connected: false,
-    token: null,        // OAuth access token or null (App flow uses backend)
-    installationId: null,
-    repos: [],
+    token: null,        // GitHub PAT entered by the user
+    installedRepo: null,
   },
   azure: {
     connected: false,
@@ -27,43 +26,31 @@ const state = {
 
 // ── Initialisation ─────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  readOAuthCallbackParams();
+  readAzureCallbackParams();
   restoreState();
   renderStep(state.currentStep);
   checkOrchestratorHealth();
 });
 
 /**
- * Read any query parameters injected by the backend OAuth callbacks.
- * The backend redirects to /#github_connected=true&... or /#azure_connected=true&...
- * Tokens are in the URL fragment (after #) so they are never sent to the server.
- * We consume the params, update state, then clean up the URL.
+ * Read Azure OAuth callback params (GitHub no longer uses OAuth).
  */
-function readOAuthCallbackParams() {
-  // Tokens arrive in the URL fragment (hash), not the query string, for security.
-  const fragment = window.location.hash.substring(1); // strip leading '#'
-  const params = new URLSearchParams(fragment);
-
-  if (params.get('github_connected') === 'true') {
-    state.github.connected = true;
-    const token = params.get('github_token');
-    const installId = params.get('installation_id');
-    if (token) state.github.token = token;
-    if (installId) state.github.installationId = installId;
-    // After GitHub connected, jump to step 2
-    state.currentStep = 2;
+function readAzureCallbackParams() {
+  let fragment = window.location.hash.substring(1);
+  let params = new URLSearchParams(fragment);
+  if (!params.has('azure_connected')) {
+    params = new URLSearchParams(window.location.search);
+    fragment = window.location.search;
   }
 
   if (params.get('azure_connected') === 'true') {
-    state.azure.connected = false; // Connected to auth, but workspace not yet picked
+    state.azure.connected = false;
     const token = params.get('azure_token');
     if (token) state.azure.token = token;
-    // Show subscription/workspace picker
     state.currentStep = 2;
   }
 
   if (fragment) {
-    // Clean up the URL so tokens don't sit in browser history
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 }
@@ -73,9 +60,14 @@ function saveState() {
   try {
     sessionStorage.setItem('prism_setup_state', JSON.stringify({
       currentStep: state.currentStep,
-      github: { connected: state.github.connected, installationId: state.github.installationId },
+      github: {
+        connected: state.github.connected,
+        token: state.github.token,
+        installedRepo: state.github.installedRepo,
+      },
       azure: {
         connected: state.azure.connected,
+        token: state.azure.token,
         subscriptionId: state.azure.subscriptionId,
         workspaceId: state.azure.workspaceId,
         workspaceName: state.azure.workspaceName,
@@ -91,10 +83,16 @@ function restoreState() {
     const saved = sessionStorage.getItem('prism_setup_state');
     if (!saved) return;
     const parsed = JSON.parse(saved);
-    // Merge — but don't override tokens already set from query params
+    // Merge — but don't override tokens already set from URL fragment
+    if (!state.github.token && parsed.github?.token) {
+      state.github.token = parsed.github.token;
+    }
     if (!state.github.connected && parsed.github?.connected) {
       state.github.connected = parsed.github.connected;
-      state.github.installationId = parsed.github.installationId;
+      state.github.installedRepo = parsed.github.installedRepo;
+    }
+    if (!state.azure.token && parsed.azure?.token) {
+      state.azure.token = parsed.azure.token;
     }
     if (parsed.azure?.connected) {
       state.azure.connected = parsed.azure.connected;
@@ -157,60 +155,49 @@ function setStepIcon(n, icon) {
 function renderStep1() {
   const status = document.getElementById('step1-status');
   if (state.github.connected) {
+    // Workflow installed — show success and Next button
     status.textContent = '✅';
     show('github-connected-panel');
     hide('github-connect-actions');
 
     const detail = document.getElementById('github-connected-detail');
-    if (state.github.installationId) {
-      detail.textContent = `App installation ID: ${state.github.installationId}`;
-    } else if (state.github.token) {
-      detail.textContent = 'OAuth token obtained. Use the form below to install the workflow.';
-      show('github-workflow-section');
-    }
+    detail.textContent = `Workflow installed in ${state.github.installedRepo || 'your repository'}.`;
   } else {
     status.textContent = '';
     hide('github-connected-panel');
     show('github-connect-actions');
-  }
-}
-
-async function startGitHubConnect() {
-  const btn = document.getElementById('btnGitHubInstall');
-  btn.disabled = true;
-  btn.textContent = 'Redirecting…';
-
-  try {
-    const resp = await fetch('/api/setup/github/install-url');
-    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
-    const data = await resp.json();
-    window.location.href = data.url;
-  } catch (err) {
-    btn.disabled = false;
-    btn.textContent = 'Install PRism on GitHub';
-    alert(`Could not start GitHub connection: ${err.message}`);
+    // Restore saved PAT into input if available
+    if (state.github.token) {
+      const patInput = document.getElementById('inputPAT');
+      if (patInput && !patInput.value) patInput.value = state.github.token;
+    }
   }
 }
 
 async function installWorkflow() {
+  const pat   = document.getElementById('inputPAT').value.trim();
   const owner = document.getElementById('inputOwner').value.trim();
   const repo  = document.getElementById('inputRepo').value.trim();
   const result = document.getElementById('workflow-install-result');
 
+  if (!pat) {
+    alert('Please enter your GitHub Personal Access Token.');
+    return;
+  }
   if (!owner || !repo) {
     alert('Please enter both the owner and repository name.');
     return;
   }
 
   result.className = 'loading-tag';
-  result.textContent = '⏳ Installing workflow…';
+  result.textContent = '⏳ Validating token & installing workflow…';
   show('workflow-install-result');
 
   try {
     const resp = await fetch('/api/setup/github/install-workflow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner, repo, token: state.github.token }),
+      body: JSON.stringify({ owner, repo, token: pat }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
@@ -218,7 +205,13 @@ async function installWorkflow() {
     result.className = 'success-banner';
     result.innerHTML = `✅ Workflow installed in <strong>${owner}/${repo}</strong>.
       ${data.commit_url ? `<br><a href="${data.commit_url}" target="_blank">View commit ↗</a>` : ''}`;
-    goToStep(2);
+
+    // Mark GitHub as fully connected
+    state.github.connected = true;
+    state.github.token = pat;
+    state.github.installedRepo = `${owner}/${repo}`;
+    saveState();
+    renderStep1();
   } catch (err) {
     result.className = 'error-tag';
     result.textContent = `❌ Failed: ${err.message}`;
@@ -382,9 +375,7 @@ function renderStep3() {
   const ghDetail = document.getElementById('summary-github-detail');
   if (state.github.connected) {
     ghIcon.textContent = '✅';
-    ghDetail.textContent = state.github.installationId
-      ? `App installation #${state.github.installationId}`
-      : 'OAuth token obtained';
+    ghDetail.textContent = `Workflow installed in ${state.github.installedRepo || 'your repository'}`;
   } else {
     ghIcon.textContent = '⚠️';
     ghDetail.textContent = 'Not yet connected — go back to Step 1';
