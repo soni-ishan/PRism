@@ -256,47 +256,37 @@ Write-Step "Step 7: Writing .env File"
 
 $localEnvFile = "$ProjectRoot\.env"
 $localEnvContent = @"
-# ==============================================================
-# PRism Local Development Environment
-# Generated on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-# Infra Deployment: $InfraDeploymentName
-# Mode: LOCAL (run orchestrator on localhost)
-# ==============================================================
-
-# -- Azure OpenAI --
+# ── Azure OpenAI (GPT-4o-mini, Sweden Central) ──
 AZURE_OPENAI_ENDPOINT=$($outputs.openAiEndpoint.value)
 AZURE_OPENAI_API_KEY=$openAiKey
 AZURE_OPENAI_DEPLOYMENT=$($outputs.openAiDeploymentName.value)
+AZURE_OPENAI_API_VERSION=
 
-# -- Azure AI Search --
-AZURE_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
-AZURE_SEARCH_KEY=$searchKey
+# ── Azure AI Foundry ──
+AZURE_FOUNDRY_PROJECT_CONNECTION_STRING=
 
-# -- Azure Content Safety --
+# ── Azure Identity (Service Principal) ──
+AZURE_CLIENT_ID=$($outputs.orchestratorIdentityClientId.value)
+AZURE_TENANT_ID=$($account.tenantId)
+AZURE_CLIENT_SECRET=
+AZURE_SUBSCRIPTION_ID=$($account.id)
+
+# ── Azure Content Safety ──
 AZURE_CONTENT_SAFETY_ENDPOINT=$($outputs.contentSafetyEndpoint.value)
 AZURE_CONTENT_SAFETY_KEY=$contentSafetyKey
 
-# -- Log Analytics (Incident Ingestion) --
+# ── Azure AI Search (History Agent) ──
+AZURE_SEARCH_ENDPOINT=$($outputs.aiSearchEndpoint.value)
+AZURE_SEARCH_KEY=$searchKey
+
+# ── Log Analytics (Incident Ingestion) ──
 AZURE_LOG_WORKSPACE_ID=$($outputs.logAnalyticsWorkspaceId.value)
 
-# -- Application Insights --
+# ── Application Insights (Tracing) ──
 APPLICATIONINSIGHTS_CONNECTION_STRING=$($outputs.appInsightsConnectionString.value)
 
-# -- Key Vault --
-KEY_VAULT_URL=$($outputs.keyVaultUrl.value)
-
-# -- Managed Identity (for Azure SDK DefaultAzureCredential) --
-AZURE_CLIENT_ID=$($outputs.orchestratorIdentityClientId.value)
-
-# -- GitHub --
+# ── GitHub (Fine-grained PAT) ──
 GH_PAT=$ghToken
-GITHUB_WEBHOOK_SECRET=$ghWebhookSecret
-GITHUB_REPO_OWNER=$ghRepoOwner
-GITHUB_REPO_NAME=$ghRepoName
-GITHUB_REPO=$ghRepoOwner/$ghRepoName
-
-# -- Resource Group --
-AZURE_RESOURCE_GROUP=$ResourceGroupName
 "@
 
 $localEnvContent | Out-File -FilePath $localEnvFile -Encoding ASCII -NoNewline

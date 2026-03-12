@@ -89,7 +89,7 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     """Fire all four specialist agents concurrently.
 
     Returns exactly four ``AgentResult`` objects — one per agent.
-    If an agent raises an exception, a fallback payload is substituted.
+    If an agent raises an exception or times out, a fallback payload is substituted.
     Each agent invocation is wrapped with ``trace_agent_call()`` for
     OpenTelemetry latency tracking via Foundry.
     """
@@ -126,10 +126,10 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
             return await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
 
     agent_coros = [
-        _run_diff(),
-        _run_history(),
-        _run_coverage(),
-        _run_timing(),
+        asyncio.wait_for(_run_diff(), timeout=_AGENT_TIMEOUT_SECONDS),
+        asyncio.wait_for(_run_history(), timeout=_AGENT_TIMEOUT_SECONDS),
+        asyncio.wait_for(_run_coverage(), timeout=_AGENT_TIMEOUT_SECONDS),
+        asyncio.wait_for(_run_timing(), timeout=_AGENT_TIMEOUT_SECONDS),
     ]
 
     raw_results = await asyncio.gather(*agent_coros, return_exceptions=True)

@@ -26,11 +26,23 @@ import time
 from datetime import datetime, timezone
 
 import httpx
+from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 
 from agents.orchestrator import PRPayload, orchestrate
 
+# ── Load .env before anything reads os.getenv() ──────────────────────────
+load_dotenv()
+
+# ── Logging setup ─────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+)
+# Silence noisy Azure SDK / telemetry loggers so PRism logs are visible
+for _noisy in ("azure", "urllib3", "opentelemetry", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("prism.server")
 
 
@@ -289,28 +301,34 @@ def _build_pr_comment(verdict) -> str:
 
 async def _run_orchestration(payload: PRPayload) -> None:
     """Background task: fetch PR details and run the PRism pipeline."""
-    if payload.repo and payload.pr_number:
-        changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
-        payload.changed_files = changed_files
-        payload.diff = diff
-    verdict = await orchestrate(payload)
-
-    # Apply Foundry policy guardrails
     try:
-        from foundry.deployment_config import apply_policy_guardrails
-        apply_policy_guardrails(verdict, payload.model_dump())
-    except ImportError:
-        pass
+        logger.info("Starting orchestration for %s PR #%d", payload.repo, payload.pr_number)
+        if payload.repo and payload.pr_number:
+            changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
+            payload.changed_files = changed_files
+            payload.diff = diff
+            logger.info("Fetched %d changed files, diff length=%d", len(changed_files), len(diff))
+        verdict = await orchestrate(payload)
+        logger.info("Orchestration returned verdict: %s (score=%d)", verdict.decision, verdict.confidence_score)
 
-    # Post the verdict as a PR comment so it's visible on GitHub
-    comment_body = _build_pr_comment(verdict)
-    await _post_pr_comment(payload.repo, payload.pr_number, comment_body)
+        # Apply Foundry policy guardrails
+        try:
+            from foundry.deployment_config import apply_policy_guardrails
+            apply_policy_guardrails(verdict, payload.model_dump())
+        except ImportError:
+            pass
 
-    logger.info(
-        "Background orchestration complete for PR #%d: %s",
-        payload.pr_number,
-        verdict.decision,
-    )
+        # Post the verdict as a PR comment so it's visible on GitHub
+        comment_body = _build_pr_comment(verdict)
+        await _post_pr_comment(payload.repo, payload.pr_number, comment_body)
+
+        logger.info(
+            "Background orchestration complete for PR #%d: %s",
+            payload.pr_number,
+            verdict.decision,
+        )
+    except Exception:
+        logger.exception("Background orchestration FAILED for PR #%d", payload.pr_number)
 
 
 @app.post("/webhook/pr")

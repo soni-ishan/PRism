@@ -165,42 +165,6 @@ try {
 }
 catch { Write-Warning-Custom "Could not check soft-deleted App Configuration: $($_.Exception.Message)" }
 
-# --- Azure AI Search Services ---
-try {
-    $deletedSearchSvcs = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.Search/deletedSearchServices?api-version=2024-06-01-preview" --output json 2>$null | ConvertFrom-Json
-    if ($deletedSearchSvcs.value) {
-        foreach ($svc in $deletedSearchSvcs.value) {
-            $svcName = $svc.name
-            if ($svcName -match '^prism-') {
-                Write-Host "  Purging AI Search: $svcName" -ForegroundColor Yellow
-                az rest --method DELETE --url "$($svc.id)?api-version=2024-06-01-preview" 2>$null
-                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $svcName" }
-                else { Write-Warning-Custom "Could not purge $svcName" }
-            }
-        }
-    }
-    else { Write-Host "  No soft-deleted AI Search services found." }
-}
-catch { Write-Warning-Custom "Could not check soft-deleted AI Search: $($_.Exception.Message)" }
-
-# --- Azure Machine Learning Workspaces ---
-try {
-    $deletedWorkspaces = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.MachineLearningServices/deletedWorkspaces?api-version=2024-04-01" --output json 2>$null | ConvertFrom-Json
-    if ($deletedWorkspaces.value) {
-        foreach ($ws in $deletedWorkspaces.value) {
-            $wsName = $ws.name
-            if ($wsName -match '^prism-') {
-                Write-Host "  Purging ML Workspace: $wsName" -ForegroundColor Yellow
-                az rest --method POST --url "$($ws.id)/purge?api-version=2024-04-01" 2>$null
-                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $wsName" }
-                else { Write-Warning-Custom "Could not purge $wsName" }
-            }
-        }
-    }
-    else { Write-Host "  No soft-deleted ML Workspaces found." }
-}
-catch { Write-Warning-Custom "Could not check soft-deleted ML Workspaces: $($_.Exception.Message)" }
-
 Write-Host ""
 
 # ===============================================================
@@ -241,9 +205,11 @@ else {
 # Post-Deletion Purge (catch resources soft-deleted by the RG delete)
 # ===============================================================
 
-Write-Host "`nPurging any resources soft-deleted during group deletion..." -ForegroundColor Cyan
+Write-Host "`nWaiting 15 seconds for Azure to register soft-deleted resources..." -ForegroundColor Yellow
+Start-Sleep -Seconds 15
+Write-Host "Purging any resources soft-deleted during group deletion..." -ForegroundColor Cyan
 
-# Re-check Cognitive Services
+# Re-check Cognitive Services / Azure OpenAI / Content Safety
 try {
     $deletedAccounts = az cognitiveservices account list-deleted --output json 2>$null | ConvertFrom-Json
     if ($deletedAccounts) {
@@ -258,6 +224,7 @@ try {
             }
         }
     }
+    else { Write-Host "  No soft-deleted Cognitive Services accounts found." }
 }
 catch { Write-Warning-Custom "Post-deletion Cognitive Services purge check failed: $($_.Exception.Message)" }
 
@@ -275,8 +242,46 @@ try {
             }
         }
     }
+    else { Write-Host "  No soft-deleted Key Vaults found." }
 }
 catch { Write-Warning-Custom "Post-deletion Key Vault purge check failed: $($_.Exception.Message)" }
+
+# Re-check API Management Services
+try {
+    $deletedApims = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.ApiManagement/deletedservices?api-version=2022-08-01" --output json 2>$null | ConvertFrom-Json
+    if ($deletedApims.value) {
+        foreach ($apim in $deletedApims.value) {
+            $apimName = $apim.name
+            if ($apimName -match '^prism-') {
+                Write-Host "  Purging API Management: $apimName" -ForegroundColor Yellow
+                az rest --method DELETE --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.ApiManagement/locations/$($apim.location)/deletedservices/$($apimName)?api-version=2022-08-01" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $apimName" }
+                else { Write-Warning-Custom "Could not purge $apimName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted API Management services found." }
+}
+catch { Write-Warning-Custom "Post-deletion API Management purge check failed: $($_.Exception.Message)" }
+
+# Re-check App Configuration Stores
+try {
+    $deletedAppConfigs = az rest --method GET --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.AppConfiguration/deletedConfigurationStores?api-version=2023-03-01" --output json 2>$null | ConvertFrom-Json
+    if ($deletedAppConfigs.value) {
+        foreach ($cfg in $deletedAppConfigs.value) {
+            $cfgName = $cfg.name
+            $cfgLocation = $cfg.properties.location
+            if ($cfgName -match '^prism-') {
+                Write-Host "  Purging App Configuration: $cfgName" -ForegroundColor Yellow
+                az rest --method POST --url "https://management.azure.com/subscriptions/$($account.id)/providers/Microsoft.AppConfiguration/locations/$cfgLocation/deletedConfigurationStores/$cfgName/purge?api-version=2023-03-01" 2>$null
+                if ($LASTEXITCODE -eq 0) { Write-Success "Purged: $cfgName" }
+                else { Write-Warning-Custom "Could not purge $cfgName" }
+            }
+        }
+    }
+    else { Write-Host "  No soft-deleted App Configuration stores found." }
+}
+catch { Write-Warning-Custom "Post-deletion App Configuration purge check failed: $($_.Exception.Message)" }
 
 # Clean up local config files
 $ProjectRoot = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent

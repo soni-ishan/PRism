@@ -322,8 +322,9 @@ def main():
 
 async def run(changed_files: list[str]) -> AgentResult:
     """PRism orchestrator interface."""
+    import asyncio
     agent = HistoryAgent()
-    result = agent.analyze_pr(changed_files)
+    result = await asyncio.to_thread(agent.analyze_pr, changed_files)
     return AgentResult.model_validate(result)
 
 
