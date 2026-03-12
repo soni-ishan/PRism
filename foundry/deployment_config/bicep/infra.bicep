@@ -47,11 +47,7 @@ param githubToken string
 @secure()
 param githubWebhookSecret string
 
-@description('GitHub repository owner')
-param githubRepoOwner string = ''
 
-@description('GitHub repository name')
-param githubRepoName string = ''
 
 @description('Azure OpenAI model deployment name')
 param openAiModelDeployment string = 'gpt-4o'
@@ -84,9 +80,9 @@ var keyVaultName = '${projectName}-kv-${uniqueSuffix}'
 var containerRegistryName = '${projectName}acr${uniqueSuffix}'
 var logAnalyticsName = '${namingPrefix}-logs'
 var appInsightsName = '${namingPrefix}-appins'
-var openAiName = '${namingPrefix}-openai'
+var openAiName = '${namingPrefix}-openai-${uniqueSuffix}'
 var searchName = '${namingPrefix}-search-${uniqueSuffix}'
-var contentSafetyName = '${namingPrefix}-contentsafety'
+var contentSafetyName = '${namingPrefix}-cs-${uniqueSuffix}'
 var storageAccountName = take('${projectName}${environment}st${uniqueSuffix}', 24)
 var functionAppName = '${namingPrefix}-func'
 var hostingPlanName = '${namingPrefix}-plan'

@@ -1,0 +1,265 @@
+"""GitHub API service layer for PRism platform setup.
+
+Handles workflow file injection and GitHub App token management.
+Has zero imports from agents/, mcp_servers/, or foundry/.
+"""
+
+from __future__ import annotations
+
+import base64
+import os
+import time
+from typing import Optional
+
+import httpx
+
+# ---------------------------------------------------------------------------
+# Workflow template — a copy of prism-gate.yml with PRISM_URL parameterised
+# ---------------------------------------------------------------------------
+
+WORKFLOW_TEMPLATE = """\
+name: PRism Gate
+# ──────────────────────────────────────────────────────────────────
+# Zero-setup AI risk gate — no Python, no dependencies, no checkout.
+# Auto-installed by the PRism Setup Wizard.
+#
+# Required secret (repo Settings → Secrets → Actions):
+#   GH_PAT  — a GitHub PAT with repo scope (read + write PRs/issues)
+# ──────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  prism-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run PRism analysis
+        id: prism
+        uses: actions/github-script@v7
+        env:
+          PRISM_URL: ${{{{ vars.PRISM_URL || '{orchestrator_url}' }}}}
+          GH_PAT: ${{{{ secrets.GH_PAT }}}}
+        with:
+          script: |
+            const pr       = context.payload.pull_request;
+            const repo     = context.repo.owner + '/' + context.repo.repo;
+            const clientId = `gha-${{context.repo.owner}}-${{context.repo.repo}}`;
+
+            // Fetch the PR diff to pass to PRism
+            let diff = '';
+            try {{
+              const diffResp = await fetch(
+                `https://api.github.com/repos/${{repo}}/pulls/${{pr.number}}`,
+                {{ headers: {{ Authorization: `Bearer ${{process.env.GH_PAT}}`,
+                             Accept: 'application/vnd.github.v3.diff' }} }}
+              );
+              if (diffResp.ok) diff = await diffResp.text();
+            }} catch (_) {{}}
+
+            // Fetch changed file list
+            let changedFiles = [];
+            try {{
+              const filesResp = await fetch(
+                `https://api.github.com/repos/${{repo}}/pulls/${{pr.number}}/files?per_page=100`,
+                {{ headers: {{ Authorization: `Bearer ${{process.env.GH_PAT}}`,
+                             Accept: 'application/vnd.github+json' }} }}
+              );
+              if (filesResp.ok) {{
+                const files = await filesResp.json();
+                changedFiles = files.map(f => f.filename);
+              }}
+            }} catch (_) {{}}
+
+            // Call the live PRism endpoint
+            const resp = await fetch(`${{process.env.PRISM_URL}}/analyze`, {{
+              method: 'POST',
+              headers: {{
+                'Content-Type': 'application/json',
+                'X-Client-ID': clientId,
+              }},
+              body: JSON.stringify({{
+                pr_number:     pr.number,
+                repo:          repo,
+                changed_files: changedFiles,
+                diff:          diff,
+                timestamp:     new Date().toISOString(),
+              }}),
+            }});
+
+            if (!resp.ok) {{
+              core.setFailed(`PRism returned HTTP ${{resp.status}}`);
+              return;
+            }}
+
+            const verdict = await resp.json();
+            core.setOutput('decision',         verdict.decision);
+            core.setOutput('confidence_score', String(verdict.confidence_score));
+
+            // Build PR comment
+            const tag    = verdict.decision === 'greenlight' ? '✅ GREENLIGHT' : '🚫 BLOCKED';
+            const score  = verdict.confidence_score;
+            const emojis = {{ pass: '✅', warning: '⚠️', critical: '🚫' }};
+
+            let table = '| Agent | Status | Risk | Key Finding |\\n|-------|--------|------|-------------|\\n';
+            for (const r of (verdict.agent_results || [])) {{
+              const e    = emojis[r.status] || '❓';
+              const find = (r.findings?.[0] || '—').substring(0, 80);
+              table += `| ${{r.agent_name}} | ${{e}} ${{r.status}} | ${{r.risk_score_modifier}} | ${{find}} |\\n`;
+            }}
+
+            let body = `## PRism Deployment Risk Analysis\\n\\n**Verdict:** ${{tag}} &nbsp;|&nbsp; **Confidence Score:** \\`${{score}} / 100\\`\\n\\n${{table}}`;
+
+            if (verdict.risk_brief) {{
+              body += `\\n<details><summary>📋 Full Risk Brief</summary>\\n\\n${{verdict.risk_brief}}\\n\\n</details>`;
+            }}
+            if (verdict.rollback_playbook) {{
+              body += `\\n\\n<details><summary>🔄 Rollback Playbook</summary>\\n\\n${{verdict.rollback_playbook}}\\n\\n</details>`;
+            }}
+            body += `\\n\\n---\\n*Generated by [PRism](https://github.com/soni-ishan/PRism)*`;
+
+            // Post comment on the PR
+            await github.rest.issues.createComment({{
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: pr.number,
+              body,
+            }});
+
+      - name: Block merge if verdict is blocked
+        if: steps.prism.outputs.decision == 'blocked'
+        run: |
+          echo "PRism score: ${{{{ steps.prism.outputs.confidence_score }}}} — BLOCKED"
+          exit 1
+"""
+
+WORKFLOW_PATH = ".github/workflows/prism-gate.yml"
+GITHUB_API_BASE = "https://api.github.com"
+
+
+def _default_orchestrator_url() -> str:
+    return os.getenv(
+        "PRISM_ORCHESTRATOR_URL",
+        "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
+    )
+
+
+def build_workflow_content(orchestrator_url: Optional[str] = None) -> str:
+    """Render the workflow template with the given orchestrator URL."""
+    url = orchestrator_url or _default_orchestrator_url()
+    return WORKFLOW_TEMPLATE.format(orchestrator_url=url)
+
+
+async def get_installation_token(installation_id: str) -> str:
+    """Exchange a GitHub App installation ID for a short-lived installation token.
+
+    Requires GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH env vars.
+    Falls back to GITHUB_TOKEN if App credentials are not configured.
+    """
+    app_id = os.getenv("GITHUB_APP_ID")
+    private_key_path = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+
+    # Fallback: if no App credentials, raise clearly
+    if not app_id or not private_key_path:
+        raise ValueError(
+            "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be set to use installation tokens."
+        )
+
+    try:
+        import jwt  # PyJWT — optional dep for App auth
+
+        with open(private_key_path) as f:
+            private_key = f.read()
+
+        now = int(time.time())
+        payload = {"iat": now - 60, "exp": now + 600, "iss": app_id}
+        app_jwt = jwt.encode(payload, private_key, algorithm="RS256")
+    except ImportError as exc:
+        raise ImportError("PyJWT is required for GitHub App authentication.") from exc
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
+            headers={
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["token"]
+
+
+async def commit_workflow_file(
+    token: str,
+    owner: str,
+    repo: str,
+    orchestrator_url: Optional[str] = None,
+) -> dict:
+    """Create or update the PRism workflow file in the target repository.
+
+    Uses the GitHub Contents API to commit .github/workflows/prism-gate.yml.
+    Returns the API response dict.
+    """
+    content = build_workflow_content(orchestrator_url)
+    encoded = base64.b64encode(content.encode()).decode()
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{WORKFLOW_PATH}"
+
+    async with httpx.AsyncClient() as client:
+        # Check if file already exists to get its SHA (required for updates)
+        existing_sha: Optional[str] = None
+        get_resp = await client.get(url, headers=headers)
+        if get_resp.status_code == 200:
+            existing_sha = get_resp.json().get("sha")
+
+        body: dict = {
+            "message": "ci: add PRism deployment risk gate workflow",
+            "content": encoded,
+        }
+        if existing_sha:
+            body["sha"] = existing_sha
+            body["message"] = "ci: update PRism deployment risk gate workflow"
+
+        put_resp = await client.put(url, headers=headers, json=body)
+        put_resp.raise_for_status()
+        return put_resp.json()
+
+
+async def check_workflow_exists(token: str, owner: str, repo: str) -> bool:
+    """Return True if prism-gate.yml already exists in the target repository."""
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{WORKFLOW_PATH}"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=headers)
+        return resp.status_code == 200
+
+
+async def check_secret_configured(token: str, owner: str, repo: str, secret_name: str) -> bool:
+    """Return True if the named Actions secret exists in the repository.
+
+    Note: GitHub does not expose secret values — only whether a secret exists.
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/actions/secrets/{secret_name}"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=headers)
+        return resp.status_code == 200

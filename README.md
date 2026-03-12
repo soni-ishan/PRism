@@ -195,6 +195,25 @@ PRism directly addresses the challenge criteria: intelligent CI/CD pipelines wit
 
 ## Setup
 
+### Quick Setup (Recommended)
+
+Run the PRism Setup Wizard for guided onboarding — no YAML editing or shell scripts required:
+
+```bash
+cd platform
+pip install -r requirements.txt
+uvicorn server.app:app --port 8080
+```
+
+Then open **http://localhost:8080** in your browser. The wizard will walk you through:
+1. Installing the PRism GitHub App on your repository (auto-commits the workflow file)
+2. Signing into Azure and selecting your Log Analytics workspace
+3. Verifying the connection end-to-end
+
+See [`platform/README.md`](platform/README.md) for configuration details.
+
+---
+
 > ⚠️ **Prerequisites:** Azure subscription, GitHub account, VS Code with GitHub Copilot extension
 
 ```bash
