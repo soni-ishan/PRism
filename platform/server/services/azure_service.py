@@ -7,6 +7,7 @@ Has zero imports from agents/, mcp_servers/, or foundry/.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
@@ -67,7 +68,10 @@ async def exchange_code_for_token(
     redirect = redirect_uri or os.getenv(
         "AZURE_AD_REDIRECT_URI", "http://localhost:8080/api/setup/azure/callback"
     )
-    result = app.acquire_token_by_authorization_code(
+    # MSAL's acquire_token_by_authorization_code is synchronous/blocking;
+    # run it in a thread so we don't stall the async event loop.
+    result = await asyncio.to_thread(
+        app.acquire_token_by_authorization_code,
         code=code,
         scopes=[ARM_SCOPE],
         redirect_uri=redirect,

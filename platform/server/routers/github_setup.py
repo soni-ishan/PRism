@@ -10,13 +10,27 @@ Endpoints:
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import RedirectResponse
 
 from ..models import WorkflowInstallRequest
 from ..services import github_service
+
+# GitHub owner/repo names: alphanumeric, hyphens, dots, underscores
+_SAFE_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+
+def _validate_name(value: str, label: str) -> str:
+    """Reject owner/repo names that contain path-traversal or special chars."""
+    if not value or not _SAFE_NAME.match(value):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid {label}: must be alphanumeric, hyphens, dots, or underscores.",
+        )
+    return value
 
 router = APIRouter(prefix="/api/setup/github", tags=["github-setup"])
 
@@ -73,9 +87,10 @@ async def github_callback(
     result in the query string so the wizard can advance to step 2.
     """
     if installation_id:
-        # GitHub App installation completed
+        # GitHub App installation completed — use URL fragment so the
+        # installation_id is never sent back to the server in a referrer.
         return RedirectResponse(
-            url=f"/?github_connected=true&installation_id={installation_id}"
+            url=f"/#github_connected=true&installation_id={installation_id}"
         )
 
     if code:
@@ -106,8 +121,9 @@ async def github_callback(
                 detail=f"GitHub OAuth token exchange failed: {data.get('error_description', data)}",
             )
 
+        # Token in URL fragment (after #) — never sent to server in referrer
         return RedirectResponse(
-            url=f"/?github_connected=true&github_token={token}"
+            url=f"/#github_connected=true&github_token={token}"
         )
 
     raise HTTPException(
@@ -148,9 +164,12 @@ async def install_workflow(req: WorkflowInstallRequest) -> dict:
 async def get_status(
     owner: str,
     repo: str,
-    token: str = Query(..., description="GitHub user/installation token"),
+    authorization: str = Header(..., description="Bearer <GitHub token>"),
 ) -> dict:
     """Check whether the workflow file and required secrets are configured."""
+    _validate_name(owner, "owner")
+    _validate_name(repo, "repo")
+    token = authorization.removeprefix("Bearer ").strip()
     workflow_exists = await github_service.check_workflow_exists(
         token=token, owner=owner, repo=repo
     )

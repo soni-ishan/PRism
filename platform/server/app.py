@@ -35,16 +35,20 @@ app = FastAPI(
 )
 
 # Allow the frontend (served from same origin) and any localhost dev server
+_origins = [
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+_extra_origin = os.getenv("PLATFORM_ORIGIN", "")
+if _extra_origin:
+    _origins.append(_extra_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        os.getenv("PLATFORM_ORIGIN", ""),
-    ],
+    allow_origins=_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import RedirectResponse
 
 from ..models import WorkspaceConnectRequest
@@ -75,17 +75,18 @@ async def azure_callback(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     access_token = token_data.get("access_token", "")
-    # Pass token back to the SPA via query string (short-lived, not persisted)
+    # Token in URL fragment (after #) — never sent to server in referrer
     return RedirectResponse(
-        url=f"/?azure_connected=true&azure_token={access_token}"
+        url=f"/#azure_connected=true&azure_token={access_token}"
     )
 
 
 @router.get("/subscriptions")
 async def list_subscriptions(
-    token: str = Query(..., description="Azure ARM access token"),
+    authorization: str = Header(..., description="Bearer <Azure ARM token>"),
 ) -> dict:
     """List all Azure subscriptions accessible with the provided token."""
+    token = authorization.removeprefix("Bearer ").strip()
     try:
         subs = await azure_service.list_subscriptions(access_token=token)
     except Exception as exc:
@@ -97,9 +98,10 @@ async def list_subscriptions(
 @router.get("/workspaces/{subscription_id}")
 async def list_workspaces(
     subscription_id: str,
-    token: str = Query(..., description="Azure ARM access token"),
+    authorization: str = Header(..., description="Bearer <Azure ARM token>"),
 ) -> dict:
     """List Log Analytics workspaces in the given subscription."""
+    token = authorization.removeprefix("Bearer ").strip()
     try:
         workspaces = await azure_service.list_workspaces(
             access_token=token, subscription_id=subscription_id

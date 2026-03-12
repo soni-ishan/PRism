@@ -35,11 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Read any query parameters injected by the backend OAuth callbacks.
- * The backend redirects to /?github_connected=true&... or /?azure_connected=true&...
+ * The backend redirects to /#github_connected=true&... or /#azure_connected=true&...
+ * Tokens are in the URL fragment (after #) so they are never sent to the server.
  * We consume the params, update state, then clean up the URL.
  */
 function readOAuthCallbackParams() {
-  const params = new URLSearchParams(window.location.search);
+  // Tokens arrive in the URL fragment (hash), not the query string, for security.
+  const fragment = window.location.hash.substring(1); // strip leading '#'
+  const params = new URLSearchParams(fragment);
 
   if (params.get('github_connected') === 'true') {
     state.github.connected = true;
@@ -59,7 +62,7 @@ function readOAuthCallbackParams() {
     state.currentStep = 2;
   }
 
-  if (params.toString()) {
+  if (fragment) {
     // Clean up the URL so tokens don't sit in browser history
     window.history.replaceState({}, document.title, window.location.pathname);
   }
@@ -270,7 +273,9 @@ async function loadSubscriptions() {
   select.innerHTML = '<option value="">— Loading… —</option>';
 
   try {
-    const resp = await fetch(`/api/setup/azure/subscriptions?token=${encodeURIComponent(state.azure.token)}`);
+    const resp = await fetch(`/api/setup/azure/subscriptions`, {
+      headers: { 'Authorization': `Bearer ${state.azure.token}` },
+    });
     if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
     const data = await resp.json();
 
@@ -304,7 +309,8 @@ async function onSubscriptionChange() {
 
   try {
     const resp = await fetch(
-      `/api/setup/azure/workspaces/${encodeURIComponent(subId)}?token=${encodeURIComponent(state.azure.token)}`
+      `/api/setup/azure/workspaces/${encodeURIComponent(subId)}`,
+      { headers: { 'Authorization': `Bearer ${state.azure.token}` } }
     );
     if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
     const data = await resp.json();
