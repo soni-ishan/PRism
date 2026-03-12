@@ -58,11 +58,43 @@ jobs:
               }
             } catch (_) {}
 
+            // Fetch the commit patch to get the author date with original timezone.
+            // GitHub JSON APIs always normalize to UTC — only the patch format
+            // preserves the committer's local offset (RFC 2822 Date header).
+            let timestamp = new Date().toISOString();
+            try {
+              const patchResp = await fetch(
+                `https://api.github.com/repos/${repo}/commits/${pr.head.sha}`,
+                { headers: { Authorization: `Bearer ${process.env.GH_PAT}`,
+                             Accept: 'application/vnd.github.patch' } }
+              );
+              if (patchResp.ok) {
+                const patchText = await patchResp.text();
+                // RFC 2822 header: "Date: Tue, 11 Mar 2026 01:37:25 -0500"
+                const dateMatch = patchText.match(/^Date:\s+(.+)$/m);
+                if (dateMatch) {
+                  const rfc2822 = dateMatch[1].trim();
+                  const d = new Date(rfc2822);  // parses to UTC ms
+                  if (!isNaN(d.getTime())) {
+                    const offMatch = rfc2822.match(/([+-])(\d{2})(\d{2})\s*$/);
+                    if (offMatch) {
+                      const sign = offMatch[1], hh = offMatch[2], mm = offMatch[3];
+                      const offsetMs = (sign === '+' ? 1 : -1) * (parseInt(hh)*60 + parseInt(mm)) * 60000;
+                      const local   = new Date(d.getTime() + offsetMs);
+                      const pad2    = n => String(n).padStart(2, '0');
+                      // ISO-8601 with preserved offset: YYYY-MM-DDTHH:MM:SS±HH:MM
+                      timestamp = `${local.getUTCFullYear()}-${pad2(local.getUTCMonth()+1)}-${pad2(local.getUTCDate())}` +
+                                  `T${pad2(local.getUTCHours())}:${pad2(local.getUTCMinutes())}:${pad2(local.getUTCSeconds())}` +
+                                  `${sign}${hh}:${mm}`;
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+
             // Call the live PRism endpoint
             // skip_autofix=true: the CI gate's job is to block merges, not to
             // create issues — the webhook handler owns issue creation.
-            // head_sha: the server fetches the commit's patch-format Date
-            // header to get the author's original timezone offset.
             const resp = await fetch(`${process.env.PRISM_URL}/analyze`, {
               method: 'POST',
               headers: {
@@ -74,7 +106,7 @@ jobs:
                 repo:          repo,
                 changed_files: changedFiles,
                 diff:          diff,
-                head_sha:      pr.head.sha,
+                timestamp:     timestamp,
                 skip_autofix:  true,
               }),
             });

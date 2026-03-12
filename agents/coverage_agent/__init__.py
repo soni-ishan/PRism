@@ -126,33 +126,40 @@ Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictRe
     issue_payload = {
         "title": f"[PRism] Generate missing tests for PR #{pr_number}",
         "body": body,
+        # Include Copilot as assignee at creation time — this is the
+        # most reliable way to trigger GitHub Copilot coding agent.
+        "assignees": ["copilot"],
     }
 
     try:
-        # Step 1: Create the issue — best-effort, must not crash the pipeline.
+        # Create the issue with copilot already assigned.
         resp = await client.post(issue_url, json=issue_payload)
         if resp.is_error:
+            logger.warning(
+                "Failed to create autofix issue (HTTP %d): %s",
+                resp.status_code, resp.text[:200],
+            )
             return
 
         issue_number = resp.json().get("number")
         if not issue_number:
             return
 
-        # Step 2: Assign to the GitHub Copilot coding agent.
-        # This is the call that *triggers* Copilot to start working on the task.
-        assignees_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
-        assign_resp = await client.post(assignees_url, json={"assignees": ["copilot"]})
-        if assign_resp.is_error:
+        logger.info("Created autofix issue #%d in %s", issue_number, repo)
+
+        # Check if copilot was actually assigned (GitHub silently drops it
+        # when the token lacks permission or coding agent is misconfigured).
+        actual_assignees = [a.get("login") for a in resp.json().get("assignees", [])]
+        if "copilot" not in actual_assignees:
             logger.warning(
-                "Failed to assign 'copilot' to issue #%d (HTTP %d): %s. "
-                "Ensure Copilot Coding Agent is enabled in repo Settings → Copilot "
-                "and the GH_PAT has 'repo' scope.",
+                "'copilot' was NOT assigned to issue #%d — "
+                "check that Copilot Coding Agent is enabled in "
+                "repo Settings → Copilot → Coding agent, and that "
+                "GH_PAT has 'repo' scope.",
                 issue_number,
-                assign_resp.status_code,
-                assign_resp.text[:200],
             )
         else:
-            logger.info("Assigned 'copilot' to issue #%d in %s", issue_number, repo)
+            logger.info("Copilot coding agent assigned to issue #%d", issue_number)
     except Exception as exc:  # noqa: BLE001 - autofix is best-effort, must not corrupt coverage score
         logger.warning("Autofix issue creation failed: %s", exc)
 
