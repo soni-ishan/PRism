@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRism Setup Wizard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <span class="logo">🔬 PRism</span>
+      <span class="tagline">Deployment Risk Intelligence, Powered by Agentic AI</span>
+    </div>
+  </header>
+
+  <!-- ── Progress bar ───────────────────────────────────────── -->
+  <div class="progress-bar-wrap" aria-label="Setup progress">
+    <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+  </div>
+
+  <!-- ── Step indicators ────────────────────────────────────── -->
+  <nav class="steps-nav" aria-label="Wizard steps">
+    <button class="step-pill active" id="pill-1" onclick="goToStep(1)">
+      <span class="step-num" id="step-icon-1">1</span>
+      <span class="step-label">Connect GitHub</span>
+    </button>
+    <div class="step-connector"></div>
+    <button class="step-pill" id="pill-2" onclick="goToStep(2)">
+      <span class="step-num" id="step-icon-2">2</span>
+      <span class="step-label">Connect Azure</span>
+    </button>
+    <div class="step-connector"></div>
+    <button class="step-pill" id="pill-3" onclick="goToStep(3)">
+      <span class="step-num" id="step-icon-3">3</span>
+      <span class="step-label">Verify</span>
+    </button>
+  </nav>
+
+  <!-- ── Main wizard content ────────────────────────────────── -->
+  <main class="wizard-wrap">
+
+    <!-- ── Step 1: Connect GitHub ─────────────────────────── -->
+    <section class="wizard-step" id="step-1" aria-labelledby="step1-title">
+      <div class="step-card">
+        <div class="step-card-header">
+          <span class="step-emoji">🐙</span>
+          <h2 id="step1-title">Connect GitHub</h2>
+          <span class="step-status" id="step1-status"></span>
+        </div>
+        <p class="step-desc">
+          Install the <strong>PRism GitHub App</strong> on your repository. This lets PRism
+          automatically analyse every pull request and post a risk summary as a comment.
+        </p>
+
+        <!-- Not-yet-connected state -->
+        <div id="github-connect-actions">
+          <button class="btn btn-primary" id="btnGitHubInstall" onclick="startGitHubConnect()">
+            <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
+                 alt="" class="btn-icon" />
+            Install PRism on GitHub
+          </button>
+          <p class="hint">
+            You will be redirected to GitHub to select which repositories to install the App on.
+            The PRism workflow file (<code>.github/workflows/prism-gate.yml</code>) will be
+            committed automatically.
+          </p>
+        </div>
+
+        <!-- Connected state (hidden until connected) -->
+        <div id="github-connected-panel" class="hidden">
+          <div class="success-banner">
+            <span>✅</span>
+            <div>
+              <strong>GitHub connected!</strong>
+              <p id="github-connected-detail" class="m0"></p>
+            </div>
+          </div>
+
+          <!-- Manual workflow install (for OAuth flow) -->
+          <div id="github-workflow-section" class="hidden">
+            <h3 class="subsection-title">Install workflow into a repository</h3>
+            <p class="hint">
+              Enter the repository you want to add PRism to. The workflow file will be committed
+              automatically using your GitHub token.
+            </p>
+            <div class="form-row">
+              <input id="inputOwner" class="text-input" placeholder="owner / org" />
+              <span class="form-sep">/</span>
+              <input id="inputRepo" class="text-input" placeholder="repository" />
+              <button class="btn btn-secondary" onclick="installWorkflow()">Install Workflow</button>
+            </div>
+            <div id="workflow-install-result" class="hidden"></div>
+          </div>
+
+          <button class="btn btn-primary" onclick="goToStep(2)">
+            Next: Connect Azure →
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Step 2: Connect Azure ──────────────────────────── -->
+    <section class="wizard-step hidden" id="step-2" aria-labelledby="step2-title">
+      <div class="step-card">
+        <div class="step-card-header">
+          <span class="step-emoji">☁️</span>
+          <h2 id="step2-title">Connect Azure</h2>
+          <span class="step-status" id="step2-status"></span>
+        </div>
+        <p class="step-desc">
+          Sign into your Azure account so PRism can discover your Log Analytics workspaces and
+          connect the ingestion pipeline.
+        </p>
+
+        <!-- Not-yet-authed state -->
+        <div id="azure-auth-actions">
+          <button class="btn btn-azure" id="btnAzureSignIn" onclick="startAzureConnect()">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a8/Microsoft_Azure_Logo.svg"
+                 alt="" class="btn-icon" />
+            Sign in with Azure
+          </button>
+          <p class="hint">
+            PRism requests read-only access to <code>Azure Management</code> so it can list
+            your subscriptions and Log Analytics workspaces.
+          </p>
+        </div>
+
+        <!-- Azure authed — subscription/workspace picker -->
+        <div id="azure-picker-panel" class="hidden">
+          <div class="form-group">
+            <label for="subSelect" class="form-label">Subscription</label>
+            <select id="subSelect" class="select-input" onchange="onSubscriptionChange()">
+              <option value="">— Loading subscriptions… —</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="ws-group" style="display:none">
+            <label for="wsSelect" class="form-label">Log Analytics Workspace</label>
+            <select id="wsSelect" class="select-input">
+              <option value="">— Select a workspace —</option>
+            </select>
+          </div>
+
+          <button class="btn btn-primary" id="btnConnectWs" onclick="connectWorkspace()"
+                  style="display:none">
+            Connect Workspace
+          </button>
+
+          <div id="workspace-connect-result" class="hidden"></div>
+        </div>
+
+        <!-- Connected state -->
+        <div id="azure-connected-panel" class="hidden">
+          <div class="success-banner">
+            <span>✅</span>
+            <div>
+              <strong>Azure workspace connected!</strong>
+              <p id="azure-connected-detail" class="m0"></p>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="goToStep(3)">
+            Next: Verify →
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Step 3: Verify ─────────────────────────────────── -->
+    <section class="wizard-step hidden" id="step-3" aria-labelledby="step3-title">
+      <div class="step-card">
+        <div class="step-card-header">
+          <span class="step-emoji">🚀</span>
+          <h2 id="step3-title">Verify Setup</h2>
+          <span class="step-status" id="step3-status"></span>
+        </div>
+
+        <div class="summary-grid" id="setup-summary">
+          <div class="summary-item">
+            <span class="summary-icon" id="summary-github-icon">⏳</span>
+            <div>
+              <strong>GitHub</strong>
+              <p id="summary-github-detail" class="m0 hint">Not connected yet</p>
+            </div>
+          </div>
+          <div class="summary-item">
+            <span class="summary-icon" id="summary-azure-icon">⏳</span>
+            <div>
+              <strong>Azure</strong>
+              <p id="summary-azure-detail" class="m0 hint">Not connected yet</p>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="subsection-title">Next steps</h3>
+        <ol class="next-steps-list">
+          <li>
+            Open a test pull request in your connected repository.
+          </li>
+          <li>
+            PRism will automatically analyse the PR and post a risk comment within ~30 seconds.
+          </li>
+          <li>
+            Check the
+            <a id="orchestrator-health-link" href="#" target="_blank" rel="noopener">
+              orchestrator health endpoint ↗
+            </a>
+            to verify it is running.
+          </li>
+        </ol>
+
+        <div id="orchestrator-status" class="loading-tag">Checking orchestrator…</div>
+
+        <div class="env-hint" id="env-hint" style="display:none">
+          <h3 class="subsection-title">Environment variables to set</h3>
+          <p class="hint">Copy these into your deployment environment:</p>
+          <pre id="env-output" class="code-block"></pre>
+        </div>
+
+        <button class="btn btn-success" onclick="finishSetup()">
+          🎉 Finish Setup
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener">PRism on GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="/api/docs" target="_blank" rel="noopener">API Docs</a>
+    </p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
