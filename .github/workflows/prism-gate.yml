@@ -58,26 +58,11 @@ jobs:
               }
             } catch (_) {}
 
-            // Fetch the git commit author date which preserves the committer's
-            // original timezone offset (e.g. "2026-03-11T00:43:00-05:00").
-            // The standard REST /commits API normalises everything to UTC, but
-            // GET /git/commits/{sha} returns the raw git author date.
-            let timestamp = new Date().toISOString();
-            try {
-              const commitResp = await fetch(
-                `https://api.github.com/repos/${repo}/git/commits/${pr.head.sha}`,
-                { headers: { Authorization: `Bearer ${process.env.GH_PAT}`,
-                             Accept: 'application/vnd.github+json' } }
-              );
-              if (commitResp.ok) {
-                const commit = await commitResp.json();
-                if (commit.author?.date) timestamp = commit.author.date;
-              }
-            } catch (_) {}
-
             // Call the live PRism endpoint
             // skip_autofix=true: the CI gate's job is to block merges, not to
             // create issues — the webhook handler owns issue creation.
+            // head_sha: the server fetches the commit's patch-format Date
+            // header to get the author's original timezone offset.
             const resp = await fetch(`${process.env.PRISM_URL}/analyze`, {
               method: 'POST',
               headers: {
@@ -89,7 +74,7 @@ jobs:
                 repo:          repo,
                 changed_files: changedFiles,
                 diff:          diff,
-                timestamp:     timestamp,
+                head_sha:      pr.head.sha,
                 skip_autofix:  true,
               }),
             });

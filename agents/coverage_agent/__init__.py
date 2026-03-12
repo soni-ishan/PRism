@@ -6,6 +6,7 @@ have corresponding tests and whether tests were removed.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import PurePosixPath
 
@@ -13,6 +14,7 @@ import httpx
 
 from agents.shared.data_contract import AgentResult
 
+logger = logging.getLogger("prism.coverage")
 AGENT_NAME = "Coverage Agent"
 
 
@@ -139,9 +141,20 @@ Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictRe
         # Step 2: Assign to the GitHub Copilot coding agent.
         # This is the call that *triggers* Copilot to start working on the task.
         assignees_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
-        await client.post(assignees_url, json={"assignees": ["copilot"]})
-    except Exception:  # noqa: BLE001 - autofix is best-effort, must not corrupt coverage score
-        pass
+        assign_resp = await client.post(assignees_url, json={"assignees": ["copilot"]})
+        if assign_resp.is_error:
+            logger.warning(
+                "Failed to assign 'copilot' to issue #%d (HTTP %d): %s. "
+                "Ensure Copilot Coding Agent is enabled in repo Settings → Copilot "
+                "and the GH_PAT has 'repo' scope.",
+                issue_number,
+                assign_resp.status_code,
+                assign_resp.text[:200],
+            )
+        else:
+            logger.info("Assigned 'copilot' to issue #%d in %s", issue_number, repo)
+    except Exception as exc:  # noqa: BLE001 - autofix is best-effort, must not corrupt coverage score
+        logger.warning("Autofix issue creation failed: %s", exc)
 
 
 async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentResult:

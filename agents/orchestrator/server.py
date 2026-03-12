@@ -21,7 +21,9 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
+from email.utils import parsedate_to_datetime
 import time
 from datetime import datetime, timezone
 
@@ -105,6 +107,11 @@ async def analyze(
     client_id: str = Depends(check_freemium_limit)
 ):
     """Accept a ``PRPayload`` directly and run the full pipeline."""
+    # Resolve timezone-aware commit timestamp from head_sha when available.
+    if payload.head_sha and payload.repo:
+        ts = await _fetch_commit_timestamp(payload.repo, payload.head_sha)
+        if ts is not None:
+            payload.timestamp = ts
     verdict = await orchestrate(payload)
 
     # Apply Foundry policy guardrails
@@ -201,24 +208,27 @@ async def _fetch_pr_details(
 async def _fetch_commit_timestamp(repo: str, sha: str) -> "datetime | None":
     """Fetch the git commit author date with original timezone offset.
 
-    Uses ``GET /repos/{repo}/git/commits/{sha}`` which returns the raw git
-    author date string (e.g. ``2026-03-11T00:43:25-05:00``) preserving the
-    committer's local timezone — unlike the REST commits API which normalises
-    everything to UTC.
+    Uses ``GET /repos/{repo}/commits/{sha}`` with ``Accept: …patch`` which
+    returns the raw ``format-patch`` output.  The ``Date:`` header in that
+    output preserves the committer's original timezone offset (RFC 2822),
+    e.g. ``Date: Tue, 11 Mar 2026 01:37:25 -0500``.
+
+    The JSON endpoints (both ``/commits`` and ``/git/commits``) normalise
+    all timestamps to UTC, which is why we use the patch format instead.
     """
-    headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
+    headers: dict[str, str] = {"Accept": "application/vnd.github.patch"}
     if _GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                f"https://api.github.com/repos/{repo}/git/commits/{sha}",
+                f"https://api.github.com/repos/{repo}/commits/{sha}",
                 headers=headers,
             )
             if resp.is_success:
-                date_str = resp.json().get("author", {}).get("date")
-                if date_str:
-                    return datetime.fromisoformat(date_str)
+                match = re.search(r'^Date:\s+(.+)$', resp.text, re.MULTILINE)
+                if match:
+                    return parsedate_to_datetime(match.group(1).strip())
     except Exception:
         pass
     return None
