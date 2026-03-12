@@ -47,11 +47,7 @@ param githubToken string
 @secure()
 param githubWebhookSecret string
 
-@description('GitHub repository owner')
-param githubRepoOwner string = ''
 
-@description('GitHub repository name')
-param githubRepoName string = ''
 
 @description('Azure OpenAI model deployment name')
 param openAiModelDeployment string = 'gpt-4o'

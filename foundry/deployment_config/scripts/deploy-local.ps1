@@ -245,8 +245,7 @@ Write-Info "Reading GitHub token from parameters file..."
 $params = Get-Content $ParametersFile -Raw | ConvertFrom-Json
 $ghToken = $params.parameters.githubToken.value
 $ghWebhookSecret = $params.parameters.githubWebhookSecret.value
-$ghRepoOwner = $params.parameters.githubRepoOwner.value
-$ghRepoName = $params.parameters.githubRepoName.value
+
 
 # ===============================================================
 # Write Local .env
