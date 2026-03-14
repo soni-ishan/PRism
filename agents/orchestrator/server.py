@@ -21,7 +21,9 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
+from email.utils import parsedate_to_datetime
 import time
 from datetime import datetime, timezone
 
@@ -117,6 +119,11 @@ async def analyze(
     client_id: str = Depends(check_freemium_limit)
 ):
     """Accept a ``PRPayload`` directly and run the full pipeline."""
+    # Resolve timezone-aware commit timestamp from head_sha when available.
+    if payload.head_sha and payload.repo:
+        ts = await _fetch_commit_timestamp(payload.repo, payload.head_sha)
+        if ts is not None:
+            payload.timestamp = ts
     verdict = await orchestrate(payload)
 
     # Apply Foundry policy guardrails
@@ -210,6 +217,35 @@ async def _fetch_pr_details(
     return changed_files, diff
 
 
+async def _fetch_commit_timestamp(repo: str, sha: str) -> "datetime | None":
+    """Fetch the git commit author date with original timezone offset.
+
+    Uses ``GET /repos/{repo}/commits/{sha}`` with ``Accept: …patch`` which
+    returns the raw ``format-patch`` output.  The ``Date:`` header in that
+    output preserves the committer's original timezone offset (RFC 2822),
+    e.g. ``Date: Tue, 11 Mar 2026 01:37:25 -0500``.
+
+    The JSON endpoints (both ``/commits`` and ``/git/commits``) normalise
+    all timestamps to UTC, which is why we use the patch format instead.
+    """
+    headers: dict[str, str] = {"Accept": "application/vnd.github.patch"}
+    if _GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/commits/{sha}",
+                headers=headers,
+            )
+            if resp.is_success:
+                match = re.search(r'^Date:\s+(.+)$', resp.text, re.MULTILINE)
+                if match:
+                    return parsedate_to_datetime(match.group(1).strip())
+    except Exception:
+        pass
+    return None
+
+
 def _parse_github_webhook(body: dict) -> PRPayload | None:
     """Extract a ``PRPayload`` from a raw GitHub PR webhook body.
 
@@ -228,6 +264,7 @@ def _parse_github_webhook(body: dict) -> PRPayload | None:
         changed_files=[],  # Populated later via API
         diff="",  # Populated later via API
         timestamp=datetime.now(timezone.utc),
+        head_sha=pr.get("head", {}).get("sha"),
     )
 
 
@@ -308,6 +345,12 @@ async def _run_orchestration(payload: PRPayload) -> None:
             payload.changed_files = changed_files
             payload.diff = diff
             logger.info("Fetched %d changed files, diff length=%d", len(changed_files), len(diff))
+            # Replace UTC server time with the committer's timezone-aware timestamp
+            # so the Timing Agent evaluates risk in the deployer's local time.
+            if payload.head_sha:
+                ts = await _fetch_commit_timestamp(payload.repo, payload.head_sha)
+                if ts is not None:
+                    payload.timestamp = ts
         verdict = await orchestrate(payload)
         logger.info("Orchestration returned verdict: %s (score=%d)", verdict.decision, verdict.confidence_score)
 

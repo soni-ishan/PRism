@@ -188,12 +188,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const prNumber = this._extractPrNumber(branch);
     const repo = this._cachedRepo;
 
+    // Build a timezone-aware ISO timestamp so the Timing Agent evaluates
+    // risk in the developer's local time, not server UTC.
+    const now = new Date();
+    const offsetMins = -now.getTimezoneOffset(); // minutes ahead of UTC
+    const sign = offsetMins >= 0 ? "+" : "-";
+    const pad2 = (n: number) => String(Math.abs(n)).padStart(2, "0");
+    const localIso =
+      `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}` +
+      `T${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}` +
+      `${sign}${pad2(Math.floor(Math.abs(offsetMins) / 60))}:${pad2(Math.abs(offsetMins) % 60)}`;
+
     const payload = {
       pr_number: prNumber ?? 0,
       repo: repo ?? "unknown/repo",
       changed_files: [],
       diff: "",
-      timestamp: new Date().toISOString(),
+      timestamp: localIso,
     };
 
     try {
