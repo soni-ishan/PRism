@@ -111,7 +111,7 @@ Repository: **PRism**
     issue_payload = {
         "title": f"[PRism] Generate missing tests for PR #{pr_number}",
         "body": body,
-        # We use the Label trigger as it's more reliable for the Copilot Bot
+        # Primary trigger for Workspace/Coding Agent
         "labels": [COPILOT_TRIGGER_LABEL],
     }
 
@@ -124,10 +124,17 @@ Repository: **PRism**
         issue_data = resp.json()
         issue_number = issue_data.get("number")
         
-        # Verify if assignment worked (some repos allow 'copilot' as an assignee, some don't)
-        # We try to add the assignee in a separate step if the label alone isn't enough
+        # Based on screenshots, we attempt to assign 'github-copilot'.
+        # If the PAT lacks the 'copilot' scope seen in the screenshots, 
+        # this specific call might fail even if the issue is created.
         assign_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
-        await client.post(assign_url, json={"assignees": ["github-copilot"]})
+        assign_resp = await client.post(assign_url, json={"assignees": ["github-copilot"]})
+        
+        if assign_resp.is_error:
+            logger.warning(
+                "Issue created but 'github-copilot' assignment failed. "
+                "Check if your PAT has the 'copilot' scope enabled (as seen in settings)."
+            )
 
         logger.info("Created autofix issue #%d and tagged for Copilot.", issue_number)
     except Exception as exc:
@@ -148,6 +155,11 @@ async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentRes
         }
 
         async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
+            # Quick check for token scopes if we're debugging
+            # response = await client.get("https://api.github.com/user")
+            # scopes = response.headers.get("X-OAuth-Scopes", "")
+            # if "copilot" not in scopes: logger.info("Token missing 'copilot' scope")
+
             files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
             response = await client.get(files_url)
             response.raise_for_status()
