@@ -75,7 +75,7 @@ class PRPayload(BaseModel):
     )
     skip_autofix: bool = Field(
         default=False,
-        description="If True, skip Copilot autofix issue creation. Set by CI gate to prevent duplicate issues.",
+        description="If True, skip Copilot autofix PR comment creation. Set by CI gate to prevent duplicate comments.",
     )
 
 

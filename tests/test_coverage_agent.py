@@ -153,7 +153,7 @@ async def test_many_files_missing_tests_critical_status():
 
 
 @pytest.mark.asyncio
-async def test_single_missing_test_file_triggers_issue_creation():
+async def test_single_missing_test_file_triggers_pr_comment():
     repo = "devDays/PRism"
     get_routes = {
         f"https://api.github.com/repos/{repo}/pulls/5/files": MockResponse(
@@ -182,7 +182,7 @@ async def test_single_missing_test_file_triggers_issue_creation():
 
 
 @pytest.mark.asyncio
-async def test_removed_test_file_triggers_warning_and_issue_creation():
+async def test_removed_test_file_triggers_warning_and_pr_comment():
     repo = "devDays/PRism"
     get_routes = {
         f"https://api.github.com/repos/{repo}/pulls/6/files": MockResponse(
@@ -235,7 +235,7 @@ async def test_api_failure_returns_graceful_warning_fallback():
 
 
 @pytest.mark.asyncio
-async def test_skip_autofix_prevents_issue_creation():
+async def test_skip_autofix_prevents_pr_comment_creation():
     """CI gate passes skip_autofix=True — no PR comments should be posted."""
     repo = "devDays/PRism"
     get_routes = {
