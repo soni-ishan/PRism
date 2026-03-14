@@ -16,16 +16,17 @@ logger = logging.getLogger("prism.azure_mcp_server")
 class AzureMCPServer:
     """Thin wrapper around PRism's Azure AI Search query/ingest modules."""
 
-    def __init__(self, recreate_index: bool = False):
+    def __init__(self, recreate_index: bool = False, index_name: str | None = None):
         from mcp_servers.azure_mcp_server.setup import create_index
 
-        create_index(recreate=recreate_index)
+        self._index_name = index_name
+        create_index(recreate=recreate_index, index_name=index_name)
 
         # Expose a raw SearchClient for advanced usage (e.g. test scripts)
         try:
             from mcp_servers.azure_mcp_server.query import _get_search_client
 
-            self.search_client = _get_search_client()
+            self.search_client = _get_search_client(index_name=index_name)
         except Exception as exc:
             logger.warning("Could not create raw search client: %s", exc)
             self.search_client = None
@@ -40,7 +41,7 @@ class AzureMCPServer:
         """Search incidents by file paths (delegates to query.query_by_files)."""
         from mcp_servers.azure_mcp_server.query import query_by_files
 
-        return query_by_files(file_paths, top_k=top_k)
+        return query_by_files(file_paths, top_k=top_k, index_name=self._index_name)
 
     def query_incidents_semantic(
         self,
@@ -50,7 +51,7 @@ class AzureMCPServer:
         """Full-text semantic search (delegates to query.query_semantic)."""
         from mcp_servers.azure_mcp_server.query import query_semantic
 
-        return query_semantic(search_text, top_k=top_k)
+        return query_semantic(search_text, top_k=top_k, index_name=self._index_name)
 
     # ── Ingest helpers ────────────────────────────────────────────────
 

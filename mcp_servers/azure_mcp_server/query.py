@@ -20,7 +20,7 @@ from azure.search.documents import SearchClient
 load_dotenv()
 logger = logging.getLogger("prism.query")
 
-INDEX_NAME = "incidents"
+DEFAULT_INDEX_NAME = "incidents"
 
 # Fields returned from every query — matches the index schema
 _SELECT_FIELDS = [
@@ -36,8 +36,12 @@ _SELECT_FIELDS = [
 ]
 
 
-def _get_search_client() -> SearchClient:
-    """Create an authenticated SearchClient for the incidents index."""
+def _get_search_client(index_name: str | None = None) -> SearchClient:
+    """Create an authenticated SearchClient.
+
+    Args:
+        index_name: Override the default index name (for per-repo indexes).
+    """
     endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
     key = os.getenv("AZURE_SEARCH_KEY")
 
@@ -52,7 +56,7 @@ def _get_search_client() -> SearchClient:
 
     return SearchClient(
         endpoint=endpoint,
-        index_name=INDEX_NAME,
+        index_name=index_name or DEFAULT_INDEX_NAME,
         credential=credential,
     )
 
@@ -73,13 +77,18 @@ def _doc_to_incident(doc: dict) -> dict[str, Any]:
     }
 
 
-def query_by_files(file_paths: list[str], top_k: int = 25) -> list[dict[str, Any]]:
+def query_by_files(
+    file_paths: list[str],
+    top_k: int = 25,
+    index_name: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Search incidents by file paths. Primary method used by the History Agent.
 
     Args:
         file_paths: List of changed files from the PR.
         top_k: Max results to return.
+        index_name: Override the default index name (for per-repo indexes).
 
     Returns:
         List of incident dicts matching the standard schema.
@@ -88,17 +97,24 @@ def query_by_files(file_paths: list[str], top_k: int = 25) -> list[dict[str, Any
         return []
 
     query_text = " OR ".join(file_paths)
-    return query_semantic(query_text, top_k=top_k)
+    return query_semantic(query_text, top_k=top_k, index_name=index_name)
 
 
-def query_semantic(query_text: str, top_k: int = 10) -> list[dict[str, Any]]:
+def query_semantic(
+    query_text: str,
+    top_k: int = 10,
+    index_name: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Full-text search across the incidents index.
 
     Searches across: files_involved, title, error_message, root_cause.
+
+    Args:
+        index_name: Override the default index name (for per-repo indexes).
     """
     try:
-        client = _get_search_client()
+        client = _get_search_client(index_name=index_name)
 
         results = client.search(
             search_text=query_text,

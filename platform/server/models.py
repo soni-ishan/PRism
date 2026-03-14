@@ -19,6 +19,7 @@ class GitHubConnection(BaseModel):
 class AzureConnection(BaseModel):
     """Stores Azure connection info after OAuth login."""
 
+    tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
     workspace_id: Optional[str] = None
     workspace_name: Optional[str] = None
@@ -71,4 +72,5 @@ class WorkspaceConnectRequest(BaseModel):
     workspace_id: str
     workspace_name: str
     customer_id: Optional[str] = None
+    tenant_id: Optional[str] = None  # customer's AAD tenant (for cross-tenant)
     access_token: str

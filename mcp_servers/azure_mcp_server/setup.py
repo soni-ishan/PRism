@@ -33,7 +33,13 @@ logger = logging.getLogger("prism.setup")
 # Single source of truth for the incidents index schema.
 # Both setup.py and ingest.py reference this structure.
 
-INDEX_NAME = "incidents"
+DEFAULT_INDEX_NAME = "incidents"
+
+
+def resolve_index_name(index_name: str | None = None) -> str:
+    """Return *index_name* if given, else fall back to the default."""
+    return index_name or DEFAULT_INDEX_NAME
+
 
 INDEX_FIELDS = [
     SimpleField(name="id", type=SearchFieldDataType.String, key=True),
@@ -96,27 +102,33 @@ def _get_index_client() -> SearchIndexClient:
     )
 
 
-def create_index(recreate: bool = False) -> None:
-    """Create the incidents index. If recreate=True, drops and recreates it."""
+def create_index(recreate: bool = False, index_name: str | None = None) -> None:
+    """Create the incidents index. If recreate=True, drops and recreates it.
+
+    Args:
+        recreate:   Drop and recreate the index.
+        index_name: Override the default index name (for per-repo indexes).
+    """
+    name = resolve_index_name(index_name)
     client = _get_index_client()
 
     if recreate:
         try:
-            client.delete_index(INDEX_NAME)
-            logger.info("Deleted existing index '%s'", INDEX_NAME)
+            client.delete_index(name)
+            logger.info("Deleted existing index '%s'", name)
         except Exception:
             pass  # Index didn't exist — that's fine
     else:
         try:
-            client.get_index(INDEX_NAME)
-            logger.info("Index '%s' already exists — skipping", INDEX_NAME)
+            client.get_index(name)
+            logger.info("Index '%s' already exists — skipping", name)
             return
         except Exception:
             pass  # Index doesn't exist — create it
 
-    index = SearchIndex(name=INDEX_NAME, fields=INDEX_FIELDS)
+    index = SearchIndex(name=name, fields=INDEX_FIELDS)
     client.create_index(index)
-    logger.info("Created index '%s'", INDEX_NAME)
+    logger.info("Created index '%s'", name)
 
 
 def validate_credentials() -> dict[str, bool]:
@@ -156,7 +168,7 @@ def main():
     # Create index
     try:
         create_index(recreate=recreate)
-        print(f"\n✅ Index '{INDEX_NAME}' is ready")
+        print(f"\n✅ Index '{DEFAULT_INDEX_NAME}' is ready")
     except Exception as e:
         print(f"\n❌ Setup failed: {e}")
         sys.exit(1)

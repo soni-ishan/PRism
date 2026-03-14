@@ -110,6 +110,7 @@ class RegistrationRow(Base):
     orchestrator_url = Column(Text, default="")
 
     # Azure (optional — filled in step 2)
+    azure_tenant_id = Column(Text, default="")  # customer's AAD tenant for cross-tenant access
     azure_subscription_id = Column(Text, default="")
     azure_workspace_id = Column(Text, default="")
     azure_workspace_name = Column(Text, default="")

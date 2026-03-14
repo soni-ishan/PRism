@@ -22,7 +22,7 @@ import re
 from datetime import timedelta, datetime, timezone
 from typing import Any
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.core.credentials import AzureKeyCredential
 from azure.monitor.query import LogsQueryClient, LogsQueryStatus
 from azure.search.documents import SearchClient
@@ -30,7 +30,7 @@ from openai import AsyncAzureOpenAI
 
 logger = logging.getLogger("prism.ingest")
 
-INDEX_NAME = "incidents"
+DEFAULT_INDEX_NAME = "incidents"
 
 
 # ── Configuration ────────────────────────────────────────────
@@ -78,11 +78,23 @@ async def extract_files(stacktrace: str, error_message: str = "") -> list[str]:
         return []
 
     try:
-        client = AsyncAzureOpenAI(
-            azure_endpoint=endpoint,
-            credential=DefaultAzureCredential(),
-            api_version="2024-12-01-preview",
-        )
+        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        if api_key:
+            client = AsyncAzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version="2024-12-01-preview",
+            )
+        else:
+            from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+            credential = AsyncDefaultAzureCredential()
+            client = AsyncAzureOpenAI(
+                azure_endpoint=endpoint,
+                azure_ad_token_provider=lambda: credential.get_token(
+                    "https://cognitiveservices.azure.com/.default"
+                ).token,
+                api_version="2024-12-01-preview",
+            )
 
         user_content = ""
         if error_message:
@@ -177,20 +189,63 @@ def _looks_like_real_file(path: str) -> bool:
     return True
 
 
+# Strict ISO-8601 validation to prevent KQL injection via fired_time
+_ISO8601_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$")
+
+
+def _build_log_analytics_credential(tenant_id: str | None = None):
+    """Build the right credential for Log Analytics queries.
+
+    When *tenant_id* is provided (cross-tenant workspace), uses
+    ClientSecretCredential with PRism's own app registration
+    authenticating against the customer's tenant.  This requires
+    the customer to have granted Log Analytics Reader to PRism's
+    service principal in their tenant.
+
+    When *tenant_id* is ``None`` (same-tenant or local dev), falls
+    back to DefaultAzureCredential.
+    """
+    if tenant_id:
+        client_id = os.getenv("AZURE_AD_CLIENT_ID")
+        client_secret = os.getenv("AZURE_AD_CLIENT_SECRET")
+        if client_id and client_secret:
+            return ClientSecretCredential(
+                tenant_id=tenant_id,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+        logger.warning(
+            "Cross-tenant workspace requires AZURE_AD_CLIENT_ID/SECRET; "
+            "falling back to DefaultAzureCredential"
+        )
+    return DefaultAzureCredential()
+
+
 # ── App Insights Query ───────────────────────────────────────
 
 async def fetch_exceptions(
     workspace_id: str,
     fired_time: str,
     window_minutes: int = 10,
+    tenant_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Query Application Insights for recent exceptions across the workspace.
 
+    Args:
+        workspace_id:   Log Analytics customer ID (GUID).
+        fired_time:     Reference UTC timestamp (ISO-8601).
+        window_minutes: How far back before fired_time to search.
+        tenant_id:      Customer's Azure AD tenant (for cross-tenant access).
+                        When set, authenticates with ClientSecretCredential.
+
     Returns:
         List of dicts with keys: timestamp, exception_type, message, stacktrace, service_name
     """
-    credential = DefaultAzureCredential()
+    if not _ISO8601_RE.match(fired_time):
+        raise ValueError(f"Invalid fired_time format (expected ISO-8601): {fired_time}")
+
+    credential = _build_log_analytics_credential(tenant_id)
     logs_client = LogsQueryClient(credential)
 
     kql = f"""
@@ -238,9 +293,13 @@ async def fetch_exceptions(
 
 # ── Push to AI Search ────────────────────────────────────────
 
-def push_incident(incident: dict[str, Any]) -> bool:
+def push_incident(incident: dict[str, Any], index_name: str | None = None) -> bool:
     """
     Push a single incident document to Azure AI Search.
+
+    Args:
+        incident:   The incident document to push.
+        index_name: Override the default index name (for per-repo indexes).
 
     Returns True on success, False on failure.
     """
@@ -250,12 +309,13 @@ def push_incident(incident: dict[str, Any]) -> bool:
         return False
 
     key = os.getenv("AZURE_SEARCH_KEY")
+    name = index_name or DEFAULT_INDEX_NAME
 
     try:
         credential = AzureKeyCredential(key) if key else DefaultAzureCredential()
         search_client = SearchClient(
             endpoint=endpoint,
-            index_name=INDEX_NAME,
+            index_name=name,
             credential=credential,
         )
 
@@ -305,10 +365,14 @@ async def ingest_from_logs(
     workspace_id: str,
     fired_time: str | None = None,
     window_minutes: int = 30,
+    tenant_id: str | None = None,
 ) -> dict[str, int]:
     """
     Independent Azure-native ingestion path:
     Log Analytics exceptions -> file extraction -> AI Search incidents index.
+
+    Args:
+        tenant_id: Customer's Azure AD tenant for cross-tenant workspace access.
 
     Returns summary counts with keys: fetched, prepared, pushed.
     """
@@ -318,6 +382,7 @@ async def ingest_from_logs(
         workspace_id=workspace_id,
         fired_time=effective_fired_time,
         window_minutes=window_minutes,
+        tenant_id=tenant_id,
     )
     if not exceptions:
         return {"fetched": 0, "prepared": 0, "pushed": 0}
@@ -350,12 +415,16 @@ def _extract_resource_name(resource_id: str) -> str:
     return resource_id.rstrip("/").rsplit("/", 1)[-1] if resource_id else "unknown"
 
 
-async def ingest_from_alert(alert_payload: dict[str, Any]) -> dict[str, Any] | None:
+async def ingest_from_alert(
+    alert_payload: dict[str, Any],
+    tenant_id: str | None = None,
+) -> dict[str, Any] | None:
     """
     Full ingestion pipeline: alert → App Insights → LLM → AI Search.
 
     Args:
         alert_payload: The raw Azure Monitor alert JSON (from Event Grid).
+        tenant_id:     Customer's Azure AD tenant for cross-tenant access.
 
     Returns:
         The incident document that was pushed, or None if ingestion failed.
@@ -386,6 +455,7 @@ async def ingest_from_alert(alert_payload: dict[str, Any]) -> dict[str, Any] | N
         exceptions = await fetch_exceptions(
             workspace_id=workspace_id,
             fired_time=fired_time,
+            tenant_id=tenant_id,
         )
 
         # Extract files from the stack traces

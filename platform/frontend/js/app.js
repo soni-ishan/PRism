@@ -39,8 +39,8 @@ async function loadRegistrations() {
           <span class="reg-tag ${r.workflow_installed ? 'tag-green' : 'tag-amber'}">
             ${r.workflow_installed ? 'Workflow' : 'Workflow pending'}
           </span>
-          <span class="reg-tag ${r.azure_workspace_name ? 'tag-green' : 'tag-muted'}">
-            ${r.azure_workspace_name ? escapeHtml(r.azure_workspace_name) : 'No workspace'}
+          <span class="reg-tag ${r.azure_workspace_name ? 'tag-green' : 'tag-amber'}">
+            ${r.azure_workspace_name ? '✓ ' + escapeHtml(r.azure_workspace_name) : '⚠ Workspace skipped'}
           </span>
           <span class="reg-tag tag-muted">
             ${formatDate(r.created_at)}
@@ -424,10 +424,11 @@ function renderStep3() {
   const azDetail = document.getElementById('summary-azure-detail');
   const azCard = document.getElementById('finish-azure-card');
   if (state.azure.connected) {
-    azDetail.textContent = `Connected to ${state.azure.workspaceName || 'your workspace'}`;
+    azDetail.textContent = `✓ Connected to ${state.azure.workspaceName || 'your workspace'}`;
     if (azCard) azCard.style.borderColor = 'rgba(46,160,67,.4)';
   } else {
-    azDetail.textContent = 'Not yet connected';
+    azDetail.textContent = '⚠ Skipped — History agent will have no incident data';
+    if (azCard) azCard.style.borderColor = 'rgba(187,128,9,.4)';
   }
 }
 

@@ -54,9 +54,10 @@ async def azure_callback(
 ):
     """Handle Azure AD OAuth2 callback.
 
-    Exchanges the authorization code for an access token and redirects the
-    browser back to the frontend with the token in the URL fragment so the
-    wizard can store it in memory and advance to the workspace picker.
+    Exchanges the authorization code for an ARM access token and redirects
+    the browser back to the frontend with the token in the URL fragment.
+    The authorize URL used OIDC-only scopes; the token exchange requests
+    the ARM .default scope.
     """
     if error:
         raise HTTPException(
@@ -73,11 +74,9 @@ async def azure_callback(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     access_token = token_data.get("access_token", "")
-    # Redirect back to frontend with token in URL *fragment* (after #)
-    # so it is never sent to the server in Referer headers or logs.
-    # The frontend strips it from the URL immediately on load.
+    tenant_id = token_data.get("tenant_id", "")
     return RedirectResponse(
-        url=f"/app.html#azure_connected=true&azure_token={access_token}"
+        url=f"/app.html#azure_connected=true&azure_token={access_token}&azure_tenant_id={tenant_id}"
     )
 
 
@@ -145,6 +144,7 @@ async def connect_workspace(req: WorkspaceConnectRequest) -> dict:
             pass  # Non-fatal — user may already have the GUID
 
     config = {
+        "tenant_id": req.tenant_id,
         "subscription_id": req.subscription_id,
         "workspace_id": req.workspace_id,
         "workspace_name": req.workspace_name,

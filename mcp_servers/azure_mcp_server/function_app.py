@@ -25,6 +25,25 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _load_tenant_id() -> str | None:
+    """Load the customer's Azure AD tenant ID from config or env.
+
+    The tenant ID is required for cross-tenant Log Analytics access.
+    Set via AZURE_CUSTOMER_TENANT_ID env var, or persisted in the
+    workspace config JSON written during platform setup.
+    """
+    tid = os.getenv("AZURE_CUSTOMER_TENANT_ID")
+    if tid:
+        return tid
+    config_path = os.getenv("PLATFORM_CONFIG_PATH", "/tmp/prism_workspace_config.json")
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+            return cfg.get("tenant_id") or None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 @app.event_grid_trigger(arg_name="event")
 async def ingest_from_monitor_alert(event: func.EventGridEvent) -> None:
     """Push Monitor-alert-driven incidents into Azure AI Search."""
@@ -58,6 +77,7 @@ async def ingest_logs_timer(timer: func.TimerRequest) -> None:
             workspace_id=workspace_id,
             fired_time=fired_time,
             window_minutes=window_minutes,
+            tenant_id=_load_tenant_id(),
         )
         logger.info(
             "Timer ingest complete fetched=%d prepared=%d pushed=%d",
@@ -91,6 +111,7 @@ async def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
             workspace_id=workspace_id,
             fired_time=fired_time,
             window_minutes=window_minutes,
+            tenant_id=_load_tenant_id(),
         )
     except (RuntimeError, ValueError, TypeError) as exc:
         # Client configuration errors

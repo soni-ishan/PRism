@@ -112,8 +112,10 @@ class TestAPIEndpoints:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    @patch("agents.orchestrator.server._lookup_repo_context", new_callable=AsyncMock, return_value=None)
+    @patch("agents.orchestrator.server._build_fallback_context", return_value=None)
     @patch("agents.orchestrator.server.orchestrate", new_callable=AsyncMock)
-    def test_analyze_endpoint(self, mock_orchestrate):
+    def test_analyze_endpoint(self, mock_orchestrate, _mock_fallback, _mock_lookup):
         mock_orchestrate.return_value = MOCK_VERDICT
 
         resp = client.post(

@@ -24,6 +24,10 @@ from ..services import auth_service
 from ..services.db import RegistrationRow, UserRow, get_session, _uuid, _now
 from .auth import get_current_user
 
+import logging
+
+logger = logging.getLogger("prism.registrations")
+
 router = APIRouter(prefix="/api/registrations", tags=["registrations"])
 
 
@@ -37,6 +41,7 @@ class CreateRegistrationRequest(BaseModel):
 
 
 class UpdateRegistrationRequest(BaseModel):
+    azure_tenant_id: Optional[str] = None
     azure_subscription_id: Optional[str] = None
     azure_workspace_id: Optional[str] = None
     azure_workspace_name: Optional[str] = None
@@ -49,6 +54,7 @@ class RegistrationResponse(BaseModel):
     owner: str
     repo: str
     orchestrator_url: str
+    azure_tenant_id: str
     azure_subscription_id: str
     azure_workspace_id: str
     azure_workspace_name: str
@@ -65,6 +71,7 @@ def _to_response(r: RegistrationRow) -> dict:
         "owner": r.owner,
         "repo": r.repo,
         "orchestrator_url": r.orchestrator_url or "",
+        "azure_tenant_id": r.azure_tenant_id or "",
         "azure_subscription_id": r.azure_subscription_id or "",
         "azure_workspace_id": r.azure_workspace_id or "",
         "azure_workspace_name": r.azure_workspace_name or "",
@@ -156,6 +163,8 @@ async def update_registration(
     if not row:
         raise HTTPException(status_code=404, detail="Registration not found")
 
+    if req.azure_tenant_id is not None:
+        row.azure_tenant_id = req.azure_tenant_id
     if req.azure_subscription_id is not None:
         row.azure_subscription_id = req.azure_subscription_id
     if req.azure_workspace_id is not None:
@@ -167,6 +176,28 @@ async def update_registration(
     if req.status is not None:
         row.status = req.status
     row.updated_at = _now()
+
+    # When Azure workspace fields are being linked, ensure the per-repo
+    # AI Search index exists so the ingestion pipeline can write to it
+    # and the History Agent can query it.
+    azure_being_linked = (
+        req.azure_subscription_id is not None
+        or req.azure_workspace_id is not None
+        or req.azure_customer_id is not None
+    )
+    if azure_being_linked and row.owner and row.repo:
+        try:
+            from agents.shared.data_contract import derive_index_name
+            from mcp_servers.azure_mcp_server.setup import create_index
+
+            idx = derive_index_name(row.owner, row.repo)
+            create_index(index_name=idx)
+            logger.info("Ensured AI Search index '%s' for %s/%s", idx, row.owner, row.repo)
+        except Exception as exc:
+            logger.warning(
+                "Could not create AI Search index for %s/%s: %s",
+                row.owner, row.repo, exc,
+            )
 
     await session.commit()
     await session.refresh(row)

@@ -162,6 +162,7 @@ async def _save_registration(request: Request, req: WorkflowInstallRequest, orch
             existing.workflow_installed = True
             existing.updated_at = _now()
             await session.commit()
+            _ensure_repo_index(req.owner, req.repo)
             return existing.id
         else:
             row = RegistrationRow(
@@ -176,7 +177,23 @@ async def _save_registration(request: Request, req: WorkflowInstallRequest, orch
             )
             session.add(row)
             await session.commit()
+            _ensure_repo_index(req.owner, req.repo)
             return row.id
+
+
+def _ensure_repo_index(owner: str, repo: str) -> None:
+    """Best-effort creation of the per-repo AI Search index."""
+    try:
+        from agents.shared.data_contract import derive_index_name
+        from mcp_servers.azure_mcp_server.setup import create_index
+
+        idx = derive_index_name(owner, repo)
+        create_index(index_name=idx)
+    except Exception as exc:
+        import logging
+        logging.getLogger("prism.github_setup").warning(
+            "Could not create AI Search index for %s/%s: %s", owner, repo, exc,
+        )
 
 
 @router.get("/status/{owner}/{repo}")

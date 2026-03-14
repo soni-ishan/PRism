@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 import time
 from datetime import datetime, timezone
@@ -29,11 +30,28 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from agents.orchestrator import PRPayload, orchestrate
+from agents.shared.data_contract import RepoContext, derive_index_name
 
 # ── Load .env before anything reads os.getenv() ──────────────────────────
-load_dotenv()
+load_dotenv()  # repo-root .env
+
+# Also load the platform .env so the orchestrator can reach the platform DB
+# and decrypt PATs.  override=False keeps repo-root values when both define
+# the same key.
+_platform_env = os.path.join(os.path.dirname(__file__), "..", "..", "platform", ".env")
+if os.path.isfile(_platform_env):
+    load_dotenv(os.path.abspath(_platform_env), override=False)
+
+# Ensure the platform package is importable when the orchestrator
+# lives in the same monorepo.  The platform code uses relative imports
+# like ``from ..services.db import ...`` so we add *platform/* to
+# sys.path rather than the repo root.
+_PLATFORM_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "platform")
+if os.path.isdir(_PLATFORM_DIR) and _PLATFORM_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_PLATFORM_DIR))
 
 # ── Logging setup ─────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -101,6 +119,92 @@ def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
     USAGE_TRACKER[x_client_id] = entry
     return x_client_id
 
+# ── Registration lookup ──────────────────────────────────────────────
+
+
+async def _lookup_repo_context(full_repo: str) -> RepoContext | None:
+    """Look up a platform registration by *owner/repo* and return a
+    ``RepoContext`` with decrypted credentials.
+
+    Returns ``None`` when:
+    - The platform DB is not reachable / not configured.
+    - No active registration exists for *full_repo*.
+    """
+    try:
+        from server.services.db import async_session, RegistrationRow
+        from server.services import auth_service
+    except Exception:
+        logger.debug("Platform DB not available — falling back to env-var mode.")
+        return None
+
+    parts = full_repo.split("/", 1)
+    if len(parts) != 2:
+        return None
+    owner, repo = parts
+
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                select(RegistrationRow)
+                .where(RegistrationRow.owner == owner)
+                .where(RegistrationRow.repo == repo)
+                .where(RegistrationRow.status == "active")
+                .order_by(RegistrationRow.created_at.desc())
+                .limit(1)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                logger.info("No active registration for %s", full_repo)
+                return None
+
+            gh_token: str | None = None
+            try:
+                gh_token = auth_service.decrypt_pat(row.gh_pat_encrypted)
+            except Exception as exc:
+                logger.warning("Failed to decrypt PAT for %s: %s", full_repo, exc)
+
+            # Only populate azure_search_index if the workspace is actually
+            # linked.  Without it the History Agent will report "no deployment
+            # connection" rather than querying a potentially empty index.
+            has_azure = bool(row.azure_workspace_id or row.azure_customer_id)
+
+            return RepoContext(
+                registration_id=row.id,
+                owner=owner,
+                repo=repo,
+                gh_token=gh_token,
+                azure_search_endpoint=os.getenv("AZURE_SEARCH_ENDPOINT") if has_azure else None,
+                azure_search_key=os.getenv("AZURE_SEARCH_KEY") if has_azure else None,
+                azure_search_index=derive_index_name(owner, repo) if has_azure else None,
+                azure_tenant_id=row.azure_tenant_id or None,
+                azure_workspace_id=row.azure_workspace_id or None,
+                azure_customer_id=row.azure_customer_id or None,
+            )
+    except Exception as exc:
+        logger.warning("Registration lookup failed for %s: %s", full_repo, exc)
+        return None
+
+
+def _build_fallback_context(full_repo: str) -> RepoContext | None:
+    """Build a ``RepoContext`` from environment variables (single-repo compat).
+
+    Note: ``azure_search_index`` is intentionally omitted.  Without a
+    platform registration the History Agent will report that no
+    deployment connection exists.
+    """
+    token = os.getenv("GH_PAT")
+    if not token:
+        return None
+    parts = full_repo.split("/", 1)
+    if len(parts) != 2:
+        return None
+    return RepoContext(
+        owner=parts[0],
+        repo=parts[1],
+        gh_token=token,
+    )
+
+
 # ── Healthcheck ──────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -116,8 +220,17 @@ async def analyze(
     payload: PRPayload,
     client_id: str = Depends(check_freemium_limit)
 ):
-    """Accept a ``PRPayload`` directly and run the full pipeline."""
-    verdict = await orchestrate(payload)
+    """Accept a ``PRPayload`` directly and run the full pipeline.
+
+    The orchestrator looks up the registration for ``payload.repo`` in the
+    platform database so it can use the correct PAT and Azure workspace
+    config.  Falls back to global ``GH_PAT`` env var for backward compat.
+    """
+    repo_ctx = await _lookup_repo_context(payload.repo)
+    if repo_ctx is None:
+        repo_ctx = _build_fallback_context(payload.repo)
+
+    verdict = await orchestrate(payload, repo_ctx=repo_ctx)
 
     # Apply Foundry policy guardrails
     guardrails = None
@@ -155,16 +268,25 @@ def _verify_signature(body: bytes, signature: str | None) -> bool:
 
 
 async def _fetch_pr_details(
-    repo: str, pr_number: int
+    repo: str,
+    pr_number: int,
+    token: str | None = None,
 ) -> tuple[list[str], str]:
     """Fetch changed files and diff from the GitHub API.
+
+    Args:
+        repo:      Full repo name (owner/repo).
+        pr_number: Pull request number.
+        token:     GitHub PAT to use.  Falls back to the global ``GH_PAT``
+                   env var when ``None``.
 
     Returns:
         (changed_files, diff)
     """
+    effective_token = token or _GITHUB_TOKEN
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
-    if _GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
+    if effective_token:
+        headers["Authorization"] = f"Bearer {effective_token}"
 
     changed_files: list[str] = []
     diff = ""
@@ -231,14 +353,20 @@ def _parse_github_webhook(body: dict) -> PRPayload | None:
     )
 
 
-async def _post_pr_comment(repo: str, pr_number: int, body: str) -> None:
+async def _post_pr_comment(
+    repo: str,
+    pr_number: int,
+    body: str,
+    token: str | None = None,
+) -> None:
     """Post a comment to a GitHub pull request."""
-    if not _GITHUB_TOKEN:
-        logger.warning("GH_PAT not set — skipping PR comment post")
+    effective_token = token or _GITHUB_TOKEN
+    if not effective_token:
+        logger.warning("No GH token available — skipping PR comment post")
         return
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     headers = {
-        "Authorization": f"Bearer {_GITHUB_TOKEN}",
+        "Authorization": f"Bearer {effective_token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -299,16 +427,31 @@ def _build_pr_comment(verdict) -> str:
     return "\n".join(lines)
 
 
-async def _run_orchestration(payload: PRPayload) -> None:
+async def _run_orchestration(
+    payload: PRPayload,
+    repo_ctx: RepoContext | None = None,
+) -> None:
     """Background task: fetch PR details and run the PRism pipeline."""
     try:
         logger.info("Starting orchestration for %s PR #%d", payload.repo, payload.pr_number)
+
+        # Resolve repo context from DB if not already provided
+        if repo_ctx is None:
+            repo_ctx = await _lookup_repo_context(payload.repo)
+        if repo_ctx is None:
+            repo_ctx = _build_fallback_context(payload.repo)
+
+        token = repo_ctx.gh_token if repo_ctx else None
+
         if payload.repo and payload.pr_number:
-            changed_files, diff = await _fetch_pr_details(payload.repo, payload.pr_number)
+            changed_files, diff = await _fetch_pr_details(
+                payload.repo, payload.pr_number, token=token,
+            )
             payload.changed_files = changed_files
             payload.diff = diff
             logger.info("Fetched %d changed files, diff length=%d", len(changed_files), len(diff))
-        verdict = await orchestrate(payload)
+
+        verdict = await orchestrate(payload, repo_ctx=repo_ctx)
         logger.info("Orchestration returned verdict: %s (score=%d)", verdict.decision, verdict.confidence_score)
 
         # Apply Foundry policy guardrails
@@ -320,7 +463,7 @@ async def _run_orchestration(payload: PRPayload) -> None:
 
         # Post the verdict as a PR comment so it's visible on GitHub
         comment_body = _build_pr_comment(verdict)
-        await _post_pr_comment(payload.repo, payload.pr_number, comment_body)
+        await _post_pr_comment(payload.repo, payload.pr_number, comment_body, token=token)
 
         logger.info(
             "Background orchestration complete for PR #%d: %s",
@@ -368,5 +511,10 @@ async def handle_webhook(
             status_code=400,
         )
 
-    background_tasks.add_task(_run_orchestration, payload)
+    # Resolve repo context so the background task uses the right PAT
+    repo_ctx = await _lookup_repo_context(payload.repo)
+    if repo_ctx is None:
+        repo_ctx = _build_fallback_context(payload.repo)
+
+    background_tasks.add_task(_run_orchestration, payload, repo_ctx)
     return JSONResponse({"status": "accepted", "pr_number": payload.pr_number}, status_code=202)

@@ -15,14 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agents.shared.data_contract import AgentResult, VerdictReport
+from agents.shared.data_contract import AgentResult, RepoContext, VerdictReport
 
 logger = logging.getLogger("prism.orchestrator")
+
+_AGENT_TIMEOUT_SECONDS = int(os.getenv("PRISM_AGENT_TIMEOUT", "60"))
 
 
 def _parse_iso_timestamp(ts: str) -> datetime:
@@ -85,8 +88,16 @@ def _make_fallback(agent_name: str, error: Exception) -> AgentResult:
 
 # ── Core Orchestration ───────────────────────────────────────────────
 
-async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
+async def _import_and_run_agents(
+    payload: PRPayload,
+    repo_ctx: RepoContext | None = None,
+) -> list[AgentResult]:
     """Fire all four specialist agents concurrently.
+
+    Args:
+        payload:  Parsed PR event data.
+        repo_ctx: Per-registration context (PAT, Azure workspace config).
+                  When ``None`` agents fall back to environment variables.
 
     Returns exactly four ``AgentResult`` objects — one per agent.
     If an agent raises an exception or times out, a fallback payload is substituted.
@@ -118,12 +129,19 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     async def _run_history() -> AgentResult:
         async with trace_agent_call("History Agent"):
             from agents.history_agent import run as run_history
-            return await run_history(changed_files=payload.changed_files)
+            return await run_history(
+                changed_files=payload.changed_files,
+                repo_ctx=repo_ctx,
+            )
 
     async def _run_coverage() -> AgentResult:
         async with trace_agent_call("Coverage Agent"):
             from agents.coverage_agent import run as run_coverage
-            return await run_coverage(pr_number=payload.pr_number, repo=payload.repo)
+            return await run_coverage(
+                pr_number=payload.pr_number,
+                repo=payload.repo,
+                gh_token=repo_ctx.gh_token if repo_ctx else None,
+            )
 
     agent_coros = [
         asyncio.wait_for(_run_diff(), timeout=_AGENT_TIMEOUT_SECONDS),
@@ -150,11 +168,16 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     return validated
 
 
-async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
+async def orchestrate(
+    pr_payload: dict[str, Any] | PRPayload,
+    repo_ctx: RepoContext | None = None,
+) -> VerdictReport:
     """Full PRism pipeline: dispatch agents → collect → verdict.
 
     Args:
         pr_payload: Either a raw dict (from the webhook) or a ``PRPayload`` instance.
+        repo_ctx:   Per-registration context looked up from the platform DB.
+                    When ``None`` agents fall back to global env vars.
 
     Returns:
         A ``VerdictReport`` with the deployment decision.
@@ -173,7 +196,7 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
     )
 
     # 1. Fire all agents concurrently
-    agent_results = await _import_and_run_agents(payload)
+    agent_results = await _import_and_run_agents(payload, repo_ctx=repo_ctx)
 
     # 2. Pass to Verdict Agent
     try:

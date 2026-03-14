@@ -11,6 +11,7 @@ Run with:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,8 +19,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Load .env from the platform/ directory (one level up from server/)
-load_dotenv(Path(__file__).parent.parent / ".env")
+# The platform/ directory and the project root (parent of platform/)
+_PLATFORM_DIR = Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = _PLATFORM_DIR.parent
+
+# Load .env from the platform/ directory, then overlay the project root .env
+# so that Azure Search credentials (AZURE_SEARCH_ENDPOINT, etc.) are available.
+load_dotenv(_PLATFORM_DIR / ".env")
+load_dotenv(_PROJECT_ROOT / ".env", override=False)
+
+# Ensure the project root is on sys.path so that agents.* and mcp_servers.*
+# can be imported by routers that create per-repo AI Search indexes.
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from .routers import auth, azure_setup, github_setup, registrations
 from .services.db import init_db

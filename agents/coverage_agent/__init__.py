@@ -123,14 +123,27 @@ Shared types live in `agents/shared/data_contract.py` (`AgentResult`, `VerdictRe
         pass
 
 
-async def run(pr_number: int, repo: str) -> AgentResult:
-    """Run coverage risk checks for a pull request."""
+async def run(
+    pr_number: int,
+    repo: str,
+    gh_token: str | None = None,
+) -> AgentResult:
+    """Run coverage risk checks for a pull request.
+
+    Args:
+        pr_number: Pull request number.
+        repo:      Full repository name (owner/repo).
+        gh_token:  GitHub PAT for this repo.  Falls back to the ``GH_PAT``
+                   environment variable when ``None``.
+    """
     findings: list[str] = []
     files_needing_tests: list[str] = []
     risk_score = 0
 
     try:
-        token = os.environ["GH_PAT"]
+        token = gh_token or os.environ.get("GH_PAT", "")
+        if not token:
+            raise RuntimeError("No GitHub token available (gh_token param and GH_PAT env var both empty)")
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",

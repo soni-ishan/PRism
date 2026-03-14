@@ -4,11 +4,12 @@ Data Source: Azure AI Search via MCP Server
 """
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from agents.shared.data_contract import AgentResult
+from agents.shared.data_contract import AgentResult, RepoContext
 from mcp_servers.azure_mcp_server.mcp_server import AzureMCPServer
 
 logger = logging.getLogger("prism.history_agent")
@@ -33,27 +34,59 @@ class HistoryAgent:
     }
     """
     
-    def __init__(self, azure_mcp: AzureMCPServer = None):
+    def __init__(self, azure_mcp: AzureMCPServer = None, repo_ctx: RepoContext | None = None):
         """
         Initialize the agent with Azure MCP server connection.
         
         Args:
             azure_mcp: Optional MCP server instance. If None, creates a new one.
+            repo_ctx:  Per-registration context. Required for connecting to the
+                       correct per-repo AI Search index.  When ``None`` the
+                       agent will report that no deployment connection exists.
             
         Raises:
             RuntimeError: If Azure connection fails
         """
         self.incidents = []
         self.deployment_events = []
+        self._connected = False
+        self._env_overrides: dict[str, str | None] = {}
+
+        # Without a repo context or a linked workspace there is no
+        # per-repo index to query.
+        if azure_mcp is None:
+            if repo_ctx is None or repo_ctx.effective_index_name is None:
+                logger.info("No deployment connection — History Agent will report no incident history")
+                return
         
+        # Apply per-registration Azure config if provided
+        if repo_ctx is not None:
+            if repo_ctx.azure_search_endpoint:
+                self._env_overrides["AZURE_SEARCH_ENDPOINT"] = os.environ.get("AZURE_SEARCH_ENDPOINT")
+                os.environ["AZURE_SEARCH_ENDPOINT"] = repo_ctx.azure_search_endpoint
+            if repo_ctx.azure_search_key:
+                self._env_overrides["AZURE_SEARCH_KEY"] = os.environ.get("AZURE_SEARCH_KEY")
+                os.environ["AZURE_SEARCH_KEY"] = repo_ctx.azure_search_key
+        
+        # Determine the per-repo index name
+        index_name = repo_ctx.effective_index_name if repo_ctx is not None else None
+
         # Connect to Azure (or use provided connection)
         try:
-            self.azure_mcp = azure_mcp or AzureMCPServer()
-            logger.info("Connected to Azure AI Search")
+            self.azure_mcp = azure_mcp or AzureMCPServer(index_name=index_name)
+            self._connected = True
+            logger.info("Connected to Azure AI Search (index=%s)", index_name or "default")
         except Exception as e:
             logger.error("Azure connection failed: %s", e)
             logger.info("Run: python setup_azure_search.py")
             raise RuntimeError(f"Azure AI Search required: {e}") from e
+        finally:
+            # Restore original env vars so other callers aren't affected
+            for key, original_value in self._env_overrides.items():
+                if original_value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = original_value
     
     def analyze_pr(self, pr_files: List[str]) -> Dict[str, Any]:
         """
@@ -67,7 +100,14 @@ class HistoryAgent:
         """
         if not pr_files:
             return self._build_response(0, "pass", [], "No files changed — minimal risk.")
-        
+        # If no deployment connection is configured, report it clearly
+        if not self._connected:
+            return self._build_response(
+                0,
+                "pass",
+                ["No deployment connection \u2014 no relevant incident history available."],
+                "Link an Azure workspace to this repository to enable incident history analysis.",
+            )        
         findings = []
         risk_score = 0
         
@@ -320,10 +360,19 @@ def main():
         sys.exit(1)
 
 
-async def run(changed_files: list[str]) -> AgentResult:
-    """PRism orchestrator interface."""
+async def run(
+    changed_files: list[str],
+    repo_ctx: RepoContext | None = None,
+) -> AgentResult:
+    """PRism orchestrator interface.
+
+    Args:
+        changed_files: List of file paths from the PR.
+        repo_ctx:      Per-registration context.  When ``None`` the agent
+                       reports that no deployment connection exists.
+    """
     import asyncio
-    agent = HistoryAgent()
+    agent = HistoryAgent(repo_ctx=repo_ctx)
     result = await asyncio.to_thread(agent.analyze_pr, changed_files)
     return AgentResult.model_validate(result)
 
