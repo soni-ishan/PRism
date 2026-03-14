@@ -111,7 +111,6 @@ Repository: **PRism**
     issue_payload = {
         "title": f"[PRism] Generate missing tests for PR #{pr_number}",
         "body": body,
-        # Primary trigger for Workspace/Coding Agent
         "labels": [COPILOT_TRIGGER_LABEL],
     }
 
@@ -124,17 +123,18 @@ Repository: **PRism**
         issue_data = resp.json()
         issue_number = issue_data.get("number")
         
-        # Based on screenshots, we attempt to assign 'github-copilot'.
-        # If the PAT lacks the 'copilot' scope seen in the screenshots, 
-        # this specific call might fail even if the issue is created.
+        # We attempt to assign 'github-copilot[bot]'. 
+        # Note: If this fails, the label 'copilot-issue-agent' should still trigger it.
         assign_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/assignees"
-        assign_resp = await client.post(assign_url, json={"assignees": ["github-copilot"]})
+        assign_resp = await client.post(assign_url, json={"assignees": ["github-copilot[bot]"]})
         
         if assign_resp.is_error:
             logger.warning(
-                "Issue created but 'github-copilot' assignment failed. "
-                "Check if your PAT has the 'copilot' scope enabled (as seen in settings)."
+                "Issue #%d created, but 'github-copilot[bot]' assignment returned %d: %s",
+                issue_number, assign_resp.status_code, assign_resp.text[:100]
             )
+        else:
+            logger.info("Successfully assigned github-copilot[bot] to issue #%d", issue_number)
 
         logger.info("Created autofix issue #%d and tagged for Copilot.", issue_number)
     except Exception as exc:
@@ -155,11 +155,6 @@ async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentRes
         }
 
         async with httpx.AsyncClient(headers=headers, timeout=20.0) as client:
-            # Quick check for token scopes if we're debugging
-            # response = await client.get("https://api.github.com/user")
-            # scopes = response.headers.get("X-OAuth-Scopes", "")
-            # if "copilot" not in scopes: logger.info("Token missing 'copilot' scope")
-
             files_url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files"
             response = await client.get(files_url)
             response.raise_for_status()
