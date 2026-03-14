@@ -42,7 +42,7 @@ AGENT_WEIGHTS: dict[str, float] = {
     "Timing Agent": 0.20,
 }
 
-_AGENT_TIMEOUT_SECONDS = 30.0
+_AGENT_TIMEOUT_SECONDS = 30
 
 # Names used for error-fallback identification
 _AGENT_NAMES = ["Diff Analyst", "History Agent", "Coverage Agent", "Timing Agent"]
