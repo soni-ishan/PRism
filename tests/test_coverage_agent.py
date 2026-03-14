@@ -94,9 +94,10 @@ async def test_some_files_missing_tests_warning_status():
         f"https://api.github.com/repos/{repo}/contents/tests/test_agent.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_server.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/2": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+        f"https://api.github.com/repos/{repo}/issues/2/comments": MockResponse(200, []),
     }
     post_routes = {
-        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 123, "assignees": [{"login": "copilot"}]}),
+        f"https://api.github.com/repos/{repo}/issues/2/comments": MockResponse(201, {"id": 123}),
     }
 
     mock_client = MockAsyncClient(get_routes, post_routes)
@@ -109,10 +110,10 @@ async def test_some_files_missing_tests_warning_status():
     assert result.status == "warning"
     assert result.risk_score_modifier == 30
     assert any("No test file found" in finding for finding in result.findings)
-    # Only ONE POST call: create issue with assignees included
+    # Only ONE POST call: create comment with @copilot mention
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues/2/comments")
+    assert "@copilot" in mock_client.post_calls[0][1]["body"]
 
 
 @pytest.mark.asyncio
@@ -131,9 +132,10 @@ async def test_many_files_missing_tests_critical_status():
         f"https://api.github.com/repos/{repo}/contents/tests/test_c.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_d.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/3": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+        f"https://api.github.com/repos/{repo}/issues/3/comments": MockResponse(200, []),
     }
     post_routes = {
-        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 321, "assignees": [{"login": "copilot"}]}),
+        f"https://api.github.com/repos/{repo}/issues/3/comments": MockResponse(201, {"id": 321}),
     }
 
     mock_client = MockAsyncClient(get_routes, post_routes)
@@ -145,9 +147,9 @@ async def test_many_files_missing_tests_critical_status():
 
     assert result.status == "critical"
     assert result.risk_score_modifier == 60
-    # Only ONE POST: create issue with copilot assignee in body
+    # Only ONE POST: create comment with @copilot mention
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert "@copilot" in mock_client.post_calls[0][1]["body"]
 
 
 @pytest.mark.asyncio
@@ -160,22 +162,23 @@ async def test_single_missing_test_file_triggers_issue_creation():
         ),
         f"https://api.github.com/repos/{repo}/contents/tests/test_coverage_agent.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/5": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+        f"https://api.github.com/repos/{repo}/issues/5/comments": MockResponse(200, []),
     }
     post_routes = {
-        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 456, "assignees": [{"login": "copilot"}]}),
+        f"https://api.github.com/repos/{repo}/issues/5/comments": MockResponse(201, {"id": 456}),
     }
 
     mock_client = MockAsyncClient(get_routes, post_routes)
     with patch("agents.coverage_agent.httpx.AsyncClient", return_value=mock_client):
         result = await run(pr_number=5, repo=repo)
 
-    # Risk is 15 for one missing test file, and this now triggers issue creation.
+    # Risk is 15 for one missing test file, and this now triggers comment creation.
     assert result.status == "pass"
     assert result.risk_score_modifier == 15
-    # Only ONE POST: create issue with copilot assignee in body
+    # Only ONE POST: create comment with @copilot mention
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues/5/comments")
+    assert "@copilot" in mock_client.post_calls[0][1]["body"]
 
 
 @pytest.mark.asyncio
@@ -187,9 +190,10 @@ async def test_removed_test_file_triggers_warning_and_issue_creation():
             [{"filename": "tests/test_orchestrator.py", "status": "removed"}],
         ),
         f"https://api.github.com/repos/{repo}/pulls/6": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
+        f"https://api.github.com/repos/{repo}/issues/6/comments": MockResponse(200, []),
     }
     post_routes = {
-        f"https://api.github.com/repos/{repo}/issues": MockResponse(201, {"number": 789, "assignees": [{"login": "copilot"}]}),
+        f"https://api.github.com/repos/{repo}/issues/6/comments": MockResponse(201, {"id": 789}),
     }
 
     mock_client = MockAsyncClient(get_routes, post_routes)
@@ -198,9 +202,9 @@ async def test_removed_test_file_triggers_warning_and_issue_creation():
 
     assert result.status == "warning"
     assert result.risk_score_modifier == 25
-    # Only ONE POST: create issue with copilot assignee in body
+    # Only ONE POST: create comment with @copilot mention
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert "@copilot" in mock_client.post_calls[0][1]["body"]
 
 
 @pytest.mark.asyncio
@@ -232,7 +236,7 @@ async def test_api_failure_returns_graceful_warning_fallback():
 
 @pytest.mark.asyncio
 async def test_skip_autofix_prevents_issue_creation():
-    """CI gate passes skip_autofix=True — no GitHub issues should be created."""
+    """CI gate passes skip_autofix=True — no PR comments should be posted."""
     repo = "devDays/PRism"
     get_routes = {
         f"https://api.github.com/repos/{repo}/pulls/10/files": MockResponse(
@@ -247,5 +251,5 @@ async def test_skip_autofix_prevents_issue_creation():
         result = await run(pr_number=10, repo=repo, skip_autofix=True)
 
     assert result.risk_score_modifier == 15
-    # skip_autofix=True: no POST calls to create or assign issues
+    # skip_autofix=True: no POST calls to create comments
     assert len(mock_client.post_calls) == 0
