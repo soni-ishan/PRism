@@ -72,8 +72,23 @@ jobs:
         if: ${{ !inputs.skip_infrastructure }}
         id: bicep_deploy
         run: |
-          # Create parameters file with secrets
-          cat > params.json << EOF
+          # Create infrastructure parameters file (for infra.bicep)
+          cat > infra-params.json << EOF
+          {
+            "\$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "projectName": {"value": "prism"},
+              "environment": {"value": "${{ github.event.inputs.environment || 'dev' }}"},
+              "location": {"value": "${{ env.AZURE_LOCATION }}"},
+              "githubToken": {"value": "${{ secrets.GH_PAT }}"},
+              "githubWebhookSecret": {"value": "${{ secrets.GITHUB_WEBHOOK_SECRET }}"}
+            }
+          }
+          EOF
+
+          # Create app parameters file (for app.bicep - includes repo info)
+          cat > app-params.json << EOF
           {
             "\$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
             "contentVersion": "1.0.0.0",
@@ -88,13 +103,13 @@ jobs:
             }
           }
           EOF
-          
+
           # Deploy infrastructure (Step 1: foundation resources)
           az deployment group create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.DEPLOYMENT_NAME }} \
             --template-file foundry/deployment_config/bicep/infra.bicep \
-            --parameters params.json \
+            --parameters infra-params.json \
             --output json > deployment-output.json
           
           # Extract outputs from infra deployment only
@@ -181,7 +196,7 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.DEPLOYMENT_NAME }}-app \
             --template-file foundry/deployment_config/bicep/app.bicep \
-            --parameters params.json \
+            --parameters app-params.json \
             --output json > app-deployment-output.json
           
           # Extract Container App outputs
