@@ -17,10 +17,8 @@ from agents.shared.data_contract import AgentResult
 logger = logging.getLogger("prism.coverage")
 AGENT_NAME = "Coverage Agent"
 
-# The standard label that triggers GitHub Copilot Workspace
-COPILOT_TRIGGER_LABEL = "copilot-issue-agent"
-# The correct internal handle for the Copilot Bot
-COPILOT_BOT_LOGIN = "github-copilot[bot]"
+# Marker embedded in the autofix PR comment for deduplication
+_COMMENT_MARKER = "<!-- prism-coverage-autofix -->"
 
 
 def _test_module_name(source_path: str) -> str:
@@ -44,66 +42,49 @@ def _candidate_test_paths(source_path: str) -> list[str]:
     return [f"tests/test_{name}.py", f"tests/unit/test_{name}.py"]
 
 
-async def _get_pr_branch(client: httpx.AsyncClient, repo: str, pr_number: int) -> str:
-    """Fetch the head branch name of a pull request."""
-    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
-    try:
-        response = await client.get(url)
-        response.raise_for_status()
-        return response.json().get("head", {}).get("ref", "unknown")
-    except Exception:
-        return "unknown"
-
-
-async def _issue_already_exists(
+async def _comment_already_posted(
     client: httpx.AsyncClient,
     repo: str,
     pr_number: int,
 ) -> bool:
-    """Return True if an open autofix issue for this PR already exists."""
-    url = f"https://api.github.com/repos/{repo}/issues"
+    """Return True if PRism has already posted an autofix comment on this PR."""
+    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     try:
-        # Search for open issues with the specific PRism title prefix
-        resp = await client.get(url, params={"state": "open", "per_page": 50})
+        resp = await client.get(url, params={"per_page": 50})
         if resp.is_error:
             return False
-        title = f"[PRism] Generate missing tests for PR #{pr_number}"
-        return any(issue.get("title") == title for issue in resp.json())
+        return any(_COMMENT_MARKER in (c.get("body") or "") for c in resp.json())
     except Exception:
         return False
 
 
-async def _create_autofix_issue(
+async def _post_copilot_pr_comment(
     client: httpx.AsyncClient,
     repo: str,
     pr_number: int,
     files_needing_tests: list[str],
-    pr_branch: str,
 ) -> None:
-    """Create a GitHub issue and trigger the Copilot coding agent.
+    """Post a PR comment mentioning @copilot to trigger automatic test generation.
 
-    This function uses deduplication to avoid redundant issues and combines 
-    creation and assignment into a single POST call to satisfy test requirements.
+    Uses an invisible HTML marker for deduplication so only one comment is ever
+    posted per PR run.
     """
     if not files_needing_tests:
         return
 
-    # Deduplication: check if we've already opened an issue for this PR
-    if await _issue_already_exists(client, repo, pr_number):
-        logger.info("Autofix issue already exists for PR #%d, skipping.", pr_number)
+    if await _comment_already_posted(client, repo, pr_number):
+        logger.info("Autofix comment already posted for PR #%d, skipping.", pr_number)
         return
 
+    files_list = "\n".join(f"- `{path}`" for path in files_needing_tests)
     source_files = [f for f in files_needing_tests if not f.startswith("tests/")]
     deleted_test_files = [f for f in files_needing_tests if f.startswith("tests/")]
     expected_tests = [_expected_test_path(f) for f in source_files] + deleted_test_files
-
-    files_list = "\n".join(f"- `{path}`" for path in files_needing_tests)
     tests_list = "\n".join(f"- `{path}`" for path in expected_tests)
 
     body = f"""\
-## Task: Generate Missing Tests for PR #{pr_number}
-
-@github-copilot The following files changed in PR #{pr_number} (branch: `{pr_branch}`) are missing test coverage.
+{_COMMENT_MARKER}
+@copilot The following files changed in this PR are missing test coverage. Please generate the missing tests.
 
 ### Files that need tests
 {files_list}
@@ -112,35 +93,20 @@ async def _create_autofix_issue(
 {tests_list}
 
 ### Instructions
-1. Check out branch `{pr_branch}` as the base for your changes.
-2. Create each missing test file at the path shown above.
-3. Write comprehensive unit tests using `pytest` and `pytest-asyncio`.
-4. Mock all external I/O (GitHub API, HTTP requests).
-5. Open a new pull request targeting `{pr_branch}`.
-
-### Context
-Repository: **PRism**
+1. Create each missing test file at the path shown above.
+2. Write comprehensive unit tests using `pytest` and `pytest-asyncio`.
+3. Mock all external I/O (GitHub API, HTTP requests).
 """
 
-    issue_url = f"https://api.github.com/repos/{repo}/issues"
-    issue_payload = {
-        "title": f"[PRism] Generate missing tests for PR #{pr_number}",
-        "body": body,
-        "labels": [COPILOT_TRIGGER_LABEL],
-        # Combine creation and assignment in one call to satisfy test 'assert len(post_calls) == 1'
-        "assignees": [COPILOT_BOT_LOGIN],
-    }
-
+    comments_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     try:
-        resp = await client.post(issue_url, json=issue_payload)
+        resp = await client.post(comments_url, json={"body": body})
         if resp.is_error:
-            logger.warning("Failed to create issue (HTTP %d): %s", resp.status_code, resp.text[:200])
+            logger.warning("Failed to post autofix comment (HTTP %d)", resp.status_code)
             return
-
-        issue_number = resp.json().get("number")
-        logger.info("Successfully created issue #%d assigned to %s", issue_number, COPILOT_BOT_LOGIN)
+        logger.info("Posted @copilot autofix comment on PR #%d", pr_number)
     except Exception as exc:
-        logger.warning("Autofix issue creation failed: %s", exc)
+        logger.warning("Autofix comment failed: %s", exc)
 
 
 async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentResult:
@@ -194,8 +160,7 @@ async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentRes
             risk_score = min(risk_score, 100)
 
             if risk_score >= 15 and not skip_autofix:
-                pr_branch = await _get_pr_branch(client, repo, pr_number)
-                await _create_autofix_issue(client, repo, pr_number, files_needing_tests, pr_branch)
+                await _post_copilot_pr_comment(client, repo, pr_number, files_needing_tests)
 
             status = "pass" if risk_score <= 20 else "warning" if risk_score <= 50 else "critical"
             recommended_action = "Coverage checks passed." if status == "pass" else "Add tests before merging."
