@@ -10,17 +10,14 @@ FROM python:3.11-slim as builder
 
 WORKDIR /build
 
-# Install system dependencies for building Python packages
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     make \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
 COPY requirements.txt .
 
-# Install Python dependencies to a temporary location
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ──────────────────────────────────────────────────────────────
@@ -28,38 +25,30 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ──────────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
-# Create non-root user for security
 RUN useradd -m -u 1000 prism && \
     mkdir -p /app && \
     chown -R prism:prism /app
 
 WORKDIR /app
 
-# Copy installed dependencies from builder
 COPY --from=builder /install /usr/local
 
-# Copy application code
 COPY --chown=prism:prism agents/ ./agents/
 COPY --chown=prism:prism foundry/ ./foundry/
 COPY --chown=prism:prism mcp_servers/ ./mcp_servers/
 
-# Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PORT=8000 \
     WORKERS=4
 
-# Switch to non-root user
 USER prism
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"
 
-# Expose port
 EXPOSE 8000
 
-# Run the FastAPI application with uvicorn
 CMD uvicorn agents.orchestrator.server:app \
     --host 0.0.0.0 \
     --port ${PORT} \

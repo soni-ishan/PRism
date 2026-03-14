@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName":          { "value": "prism" },
+    "environment":          { "value": "dev" },
+    "location":             { "value": "eastus2" },
+    "githubToken":          { "value": "<REPLACE-github-pat>" },
+    "githubWebhookSecret":  { "value": "" },
+    "openAiModelDeployment": { "value": "gpt-4o" },
+    "openAiModelVersion":   { "value": "2024-11-20" },
+    "openAiModelCapacity":  { "value": 30 },
+    "pgAdminLogin":         { "value": "prismadmin" },
+    "pgAdminPassword":      { "value": "<REPLACE-strong-password>" },
+    "deployFunctionApp":    { "value": false }
+  }
+}

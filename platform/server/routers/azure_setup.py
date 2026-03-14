@@ -28,12 +28,10 @@ _CONFIG_PATH = Path(os.getenv("PLATFORM_CONFIG_PATH", "/tmp/prism_workspace_conf
 
 
 @router.get("/auth-url")
-async def get_auth_url(state: Optional[str] = Query(None)) -> dict:
-    """Return the Azure AD OAuth2 authorization URL.
-
-    The frontend redirects the user to this URL so they can sign into their
-    Azure account and consent to the `Azure Management` scope.
-    """
+async def get_auth_url(
+    state: Optional[str] = Query(None),
+) -> dict:
+    """Return the Azure AD OAuth2 authorization URL."""
     client_id = os.getenv("AZURE_AD_CLIENT_ID")
     if not client_id:
         raise HTTPException(
@@ -79,7 +77,7 @@ async def azure_callback(
     # so it is never sent to the server in Referer headers or logs.
     # The frontend strips it from the URL immediately on load.
     return RedirectResponse(
-        url=f"/#azure_connected=true&azure_token={access_token}"
+        url=f"/app.html#azure_connected=true&azure_token={access_token}"
     )
 
 

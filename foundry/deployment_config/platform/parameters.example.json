@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName":              { "value": "prism" },
+    "environment":              { "value": "dev" },
+    "location":                 { "value": "eastus2" },
+    "pgAdminLogin":             { "value": "prismadmin" },
+    "pgAdminPassword":          { "value": "<REPLACE-strong-password>" },
+    "orchestratorUrl":          { "value": "https://<orchestrator-fqdn>" },
+    "platformOrigin":           { "value": "" },
+    "githubOAuthClientId":      { "value": "" },
+    "githubOAuthClientSecret":  { "value": "" },
+    "azureAdClientId":          { "value": "" },
+    "azureAdClientSecret":      { "value": "" },
+    "azureAdTenantId":          { "value": "" },
+    "jwtSecret":                { "value": "<REPLACE-jwt-secret>" },
+    "encryptionKey":            { "value": "<REPLACE-encryption-key>" }
+  }
+}

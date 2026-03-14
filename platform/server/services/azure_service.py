@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 ARM_BASE = "https://management.azure.com"
-GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 ARM_SCOPE = "https://management.azure.com/user_impersonation"
 
 
@@ -47,7 +46,7 @@ def get_auth_url(redirect_uri: Optional[str] = None, state: Optional[str] = None
         "AZURE_AD_REDIRECT_URI", "http://localhost:8080/api/setup/azure/callback"
     )
     params: Dict[str, Any] = {
-        "scopes": [ARM_SCOPE, "offline_access"],
+        "scopes": [ARM_SCOPE],
         "redirect_uri": redirect,
     }
     if state:

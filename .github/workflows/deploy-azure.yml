@@ -93,7 +93,7 @@ jobs:
           az deployment group create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.DEPLOYMENT_NAME }} \
-            --template-file foundry/deployment_config/bicep/infra.bicep \
+            --template-file foundry/deployment_config/infra/infra.bicep \
             --parameters params.json \
             --output json > deployment-output.json
           
@@ -165,7 +165,7 @@ jobs:
             --platform linux/amd64 \
             -t $IMAGE_TAG \
             -t $IMAGE_LATEST \
-            -f foundry/deployment_config/docker/Dockerfile.orchestrator \
+            -f foundry/deployment_config/orchestrator/Dockerfile \
             .
           
           docker push $IMAGE_TAG
@@ -180,7 +180,7 @@ jobs:
           az deployment group create \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.DEPLOYMENT_NAME }}-app \
-            --template-file foundry/deployment_config/bicep/app.bicep \
+            --template-file foundry/deployment_config/orchestrator/orchestrator.bicep \
             --parameters params.json \
             --output json > app-deployment-output.json
           

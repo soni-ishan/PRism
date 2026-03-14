@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "projectName":              { "value": "prism" },
+    "environment":              { "value": "dev" },
+    "location":                 { "value": "eastus2" },
+    "pgAdminLogin":             { "value": "prismadmin" },
+    "pgAdminPassword":          { "value": "Pr1sm@Dev2026!" },
+    "orchestratorUrl":          { "value": "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io" },
+    "platformOrigin":           { "value": "" },
+    "githubOAuthClientId":      { "value": "Ov23lifmvn451MTdYGV6" },
+    "githubOAuthClientSecret":  { "value": "424cdeb49cbc48f2f85ce41074a58d0388f1c05c" },
+    "azureAdClientId":          { "value": "7f334beb-0585-4380-b6c9-ca364a6d5223" },
+    "azureAdClientSecret":      { "value": "xpW8Q~Mp.fp_xbJH_M8HgcCwjaGV6ik9gZW4.b-P" },
+    "azureAdTenantId":          { "value": "common" },
+    "githubOAuthRedirectUri":   { "value": "https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/api/auth/github/callback" },
+    "azureAdRedirectUri":       { "value": "https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/api/setup/azure/callback" },
+    "jwtSecret":                { "value": "uTiKSyMRur-vKEbU-nauaXTAOOqAuFxQ83pUG54_wWY" },
+    "encryptionKey":            { "value": "G64EZHrvaEPOwGSQOuIjGceudi88DKShhpyl2CiO1yk=" }
+  }
+}

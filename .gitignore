@@ -23,11 +23,15 @@ htmlcov/
 vscode_extension/node_modules/
 vscode_extension/out/
 
-# Azure deployment
-foundry/deployment_config/bicep/parameters.json
+# Azure deployment — parameters.json (contains secrets)
+foundry/deployment_config/infra/parameters.json
+foundry/deployment_config/orchestrator/parameters.json
+foundry/deployment_config/platform/parameters.json
 deployment-outputs.json
 deployment-output.json
 params.json
+*.env.azure
+*.env.platform
 
 # IDE
 .vscode/

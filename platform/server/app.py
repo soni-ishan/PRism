@@ -21,7 +21,8 @@ from fastapi.staticfiles import StaticFiles
 # Load .env from the platform/ directory (one level up from server/)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from .routers import azure_setup, github_setup
+from .routers import auth, azure_setup, github_setup, registrations
+from .services.db import init_db
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -59,8 +60,15 @@ app.add_middleware(
 # Routers
 # ---------------------------------------------------------------------------
 
+app.include_router(auth.router)
 app.include_router(github_setup.router)
 app.include_router(azure_setup.router)
+app.include_router(registrations.router)
+
+
+@app.on_event("startup")
+async def _startup():
+    await init_db()
 
 # ---------------------------------------------------------------------------
 # Health endpoint

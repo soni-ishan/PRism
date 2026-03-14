@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRism — Documentation</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/docs.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo-link">
+        <span class="logo"><img src="logo.png" alt="PRism" class="logo-img" />PRism</span>
+      </a>
+      <span class="tagline">Deployment Risk Intelligence, Powered by Agentic AI</span>
+      <nav class="nav-links">
+        <a href="/">Home</a>
+        <a href="/app.html#dashboard">Dashboard</a>
+        <a href="/docs.html" class="active">Docs</a>
+      </nav>
+      <div class="header-right" id="header-right"></div>
+    </div>
+  </header>
+
+  <!-- ── Documentation ──────────────────────────────────────── -->
+  <main class="docs-page">
+    <div class="docs-layout">
+
+      <!-- ── Sidebar TOC ──────────────────────────────────────── -->
+      <aside class="docs-sidebar" id="docs-sidebar">
+        <nav class="docs-toc">
+          <h3>Contents</h3>
+          <ol>
+            <li><a href="#what-is-prism">What Is PRism?</a></li>
+            <li><a href="#architecture">Architecture Overview</a></li>
+            <li><a href="#prerequisites">Prerequisites</a></li>
+            <li><a href="#quick-start">Quick Start (No Azure)</a></li>
+            <li><a href="#azure-provisioning">Azure Provisioning</a></li>
+            <li><a href="#env-vars">Environment Variables</a></li>
+            <li><a href="#github-actions">GitHub Actions</a></li>
+            <li><a href="#vscode-extension">VS Code Extension</a></li>
+            <li><a href="#production-deploy">Production Deployment</a></li>
+            <li><a href="#managed-identity">Managed Identity</a></li>
+            <li><a href="#verifying">Verifying the Setup</a></li>
+            <li><a href="#faq">FAQ / Troubleshooting</a></li>
+          </ol>
+        </nav>
+      </aside>
+
+      <!-- ── Main content ─────────────────────────────────────── -->
+      <div class="docs-wrap">
+        <h1>PRism — Client / Vendor Setup Guide</h1>
+        <p class="docs-lead">
+          A complete walkthrough for engineering teams who want to deploy PRism as
+          their pre-deployment risk gate. Covers local dev, Azure resource provisioning,
+          CI/CD integration, VS Code extension, and production deployment.
+        </p>
+
+        <!-- ═══════════════════════════════════════════════════════
+             1. What Is PRism?
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="what-is-prism">
+          <h2>1. What Is PRism?</h2>
+          <p>
+            PRism is an <strong>AI-powered pre-deployment risk gate</strong> that analyses
+            every pull request before it ships. It runs 4 specialist agents in parallel:
+          </p>
+
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Agent</th><th>What It Checks</th><th>Example Finding</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Diff Analyst</strong></td>
+                  <td>Code changes — removed safety nets, risky patterns</td>
+                  <td>"Retry logic removed from payment_service.py"</td>
+                </tr>
+                <tr>
+                  <td><strong>History Agent</strong></td>
+                  <td>Past incidents on the same files</td>
+                  <td>"payment_service.py caused 3 P1 incidents in the last 90 days"</td>
+                </tr>
+                <tr>
+                  <td><strong>Coverage Agent</strong></td>
+                  <td>Test coverage impact of the PR</td>
+                  <td>"Net coverage delta: &minus;12% — tests were deleted"</td>
+                </tr>
+                <tr>
+                  <td><strong>Timing Agent</strong></td>
+                  <td>Deploy window risk (Friday 5 PM, holidays, etc.)</td>
+                  <td>"Deployment scheduled for Friday 4:50 PM — high incident window"</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            These agent scores are weighted and combined into a
+            <strong>Deployment Confidence Score (0–100)</strong>:
+          </p>
+          <ul>
+            <li><strong>&ge; 70</strong> &rarr; &#x2705; Greenlight — safe to deploy</li>
+            <li><strong>&lt; 70</strong> or any agent returns <code>critical</code> &rarr; &#x1F6AB; Blocked — risk brief + rollback playbook generated</li>
+          </ul>
+          <p>PRism surfaces results in <strong>three places</strong>:</p>
+          <ol>
+            <li><strong>GitHub PR comment</strong> — automated via GitHub Actions</li>
+            <li><strong>VS Code sidebar</strong> — live risk assessment in the IDE</li>
+            <li><strong>API endpoint</strong> — programmatic access for custom integrations</li>
+          </ol>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             2. Architecture Overview
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="architecture">
+          <h2>2. Architecture Overview</h2>
+          <p>
+            PRism consists of a <strong>Setup Platform</strong> (this portal) and an
+            <strong>Orchestrator</strong> that coordinates a set of specialised AI agents.
+            The platform is a standalone FastAPI app that handles onboarding; the orchestrator
+            is an independent service that processes webhook events.
+          </p>
+
+          <pre class="docs-ascii">┌──────────────────────────────────────────────────┐
+│                 GitHub Repository                │
+│   PR opened / updated ──► GitHub Actions fires   │
+└────────────────────────┬─────────────────────────┘
+                         │ POST /analyze
+                         ▼
+┌──────────────────────────────────────────────────┐
+│              PRism FastAPI Backend                │
+│         (Azure Container Apps or local)           │
+│                                                  │
+│  ┌────────────┐ ┌──────────────┐ ┌────────────┐ │
+│  │Diff Analyst│ │History Agent │ │Coverage Agt│ │
+│  └─────┬──────┘ └──────┬───────┘ └─────┬──────┘ │
+│        │    ┌──────────┐│               │        │
+│        │    │Timing Agt││               │        │
+│        │    └─────┬────┘│               │        │
+│        └──────┬───┴─────┴───────────────┘        │
+│               ▼                                  │
+│        ┌─────────────┐                           │
+│        │Verdict Agent│ ── Azure OpenAI (optional)│
+│        └─────┬───────┘                           │
+│              │                                   │
+│  ┌───────────┴────────────────────────────────┐  │
+│  │ Foundry Governance (optional)              │  │
+│  │  ∘ Content Safety  ∘ Tracing  ∘ Guardrails │  │
+│  └────────────────────────────────────────────┘  │
+└────────────────────────┬─────────────────────────┘
+                         │ VerdictReport JSON
+              ┌──────────┼──────────┐
+              ▼          ▼          ▼
+        PR Comment   VS Code    API Consumer
+                     Sidebar</pre>
+
+          <div class="docs-callout">
+            <strong>Note:</strong>&nbsp; The setup platform and the orchestrator are
+            completely decoupled. The platform knows the orchestrator only as an
+            external URL configured via <code>PRISM_ORCHESTRATOR_URL</code>.
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             3. Prerequisites
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="prerequisites">
+          <h2>3. Prerequisites</h2>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Requirement</th><th>Minimum Version</th><th>Purpose</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Python</td><td>3.12+</td><td>Backend server</td></tr>
+                <tr><td>pip</td><td>Latest</td><td>Package management</td></tr>
+                <tr><td>Git</td><td>2.x</td><td>Clone repo, detect branches</td></tr>
+                <tr><td>Node.js</td><td>18+</td><td>VS Code extension build (optional)</td></tr>
+                <tr><td>Azure CLI</td><td>2.x</td><td>Azure resource provisioning (optional)</td></tr>
+                <tr><td>Docker</td><td>20+</td><td>Container deployment (optional)</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <strong>Optional (for full Azure integration):</strong>
+            An Azure subscription with permissions to create resources and a
+            GitHub account with repo admin access (for Actions workflows).
+          </p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             4. Quick Start
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="quick-start">
+          <h2>4. Quick Start (5 Minutes — No Azure)</h2>
+          <p>
+            PRism is designed to work <strong>without any Azure resources</strong>. All
+            Azure features degrade gracefully — the pipeline never crashes due to missing
+            credentials.
+          </p>
+
+          <h3>4.1 — Clone and Install</h3>
+          <pre><code>git clone https://github.com/soni-ishan/PRism.git
+cd PRism
+pip install -r requirements.txt</code></pre>
+
+          <h3>4.2 — Create a Minimal <code>.env</code></h3>
+          <pre><code># Only needed if you want live GitHub data fetching
+GITHUB_TOKEN=ghp_your_token_here</code></pre>
+
+          <h3>4.3 — Start the Server</h3>
+          <pre><code>uvicorn agents.orchestrator.server:app --reload --port 8000</code></pre>
+
+          <h3>4.4 — Test It</h3>
+          <pre><code># Health check
+curl http://localhost:8000/health
+# → {"status": "ok", "service": "prism"}
+
+# Run an analysis
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pr_number": 46,
+    "repo": "your-org/your-repo",
+    "changed_files": ["payment_service.py", "utils/retry.py"],
+    "diff": "- retry_count=3\n+ pass",
+    "timestamp": "2026-03-07T16:50:00Z"
+  }'</code></pre>
+
+          <h3>What Works Without Azure</h3>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Feature</th><th>Without Azure</th><th>With Azure</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>4-agent parallel analysis</td><td>&#x2705; Full</td><td>&#x2705; Full</td></tr>
+                <tr><td>Confidence scoring</td><td>&#x2705; Full</td><td>&#x2705; Full</td></tr>
+                <tr><td>Greenlight/Blocked decision</td><td>&#x2705; Full</td><td>&#x2705; Full</td></tr>
+                <tr><td>Risk brief</td><td>&#x2705; Deterministic template</td><td>&#x2705; LLM-enhanced (GPT-4o)</td></tr>
+                <tr><td>Rollback playbook</td><td>&#x2705; Deterministic template</td><td>&#x2705; LLM-enhanced</td></tr>
+                <tr><td>Content safety filtering</td><td>&#x2B1C; Skipped</td><td>&#x2705; Azure Content Safety</td></tr>
+                <tr><td>Observability / tracing</td><td>&#x2B1C; Skipped</td><td>&#x2705; Application Insights</td></tr>
+                <tr><td>History Agent (past incidents)</td><td>&#x2705; Mock data</td><td>&#x2705; Azure AI Search</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             5. Azure Resource Provisioning
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="azure-provisioning">
+          <h2>5. Azure Resource Provisioning</h2>
+
+          <h3>Resource Summary</h3>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr><th>#</th><th>Resource</th><th>SKU / Pricing</th><th>What It Enables</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td><strong>Azure OpenAI</strong></td><td>Pay-as-you-go</td><td>LLM-enhanced risk briefs and rollback playbooks</td></tr>
+                <tr><td>2</td><td><strong>AI Foundry Project</strong></td><td>Free (hub/container)</td><td>Central project client, audit trail, evaluation API</td></tr>
+                <tr><td>3</td><td><strong>Content Safety</strong></td><td>Free tier: 5K txns/month</td><td>Filters harmful/hallucinated LLM output</td></tr>
+                <tr><td>4</td><td><strong>Application Insights</strong></td><td>Free tier: 5 GB/month</td><td>Per-agent latency tracing, live dashboard</td></tr>
+                <tr><td>5</td><td><strong>Azure AI Search</strong></td><td>Free tier: 50 MB</td><td>History Agent incident lookup</td></tr>
+                <tr><td>6</td><td><strong>Container Apps</strong></td><td>Pay-per-use, scale-to-zero</td><td>Production hosting for the FastAPI backend</td></tr>
+                <tr><td>7</td><td><strong>Container Registry</strong></td><td>Basic ~$5/month</td><td>Store Docker images for ACA</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="docs-callout">
+            <strong>Estimated monthly cost for a small team:</strong>
+            $5–15/month (mostly Container Registry + minimal OpenAI token usage).
+            Scale-to-zero ACA means you pay nothing when idle.
+          </div>
+
+          <h3>Manual Provisioning (Azure Portal)</h3>
+          <ol>
+            <li><strong>Azure CLI Login:</strong> <code>az login</code></li>
+            <li><strong>Create Resource Group:</strong> <code>az group create --name rg-prism --location eastus</code></li>
+            <li><strong>Azure OpenAI:</strong> Create via portal, deploy <code>gpt-4o-mini</code> model, copy endpoint and key</li>
+            <li><strong>AI Foundry Project:</strong> Create at <a href="https://ai.azure.com" target="_blank" rel="noopener">ai.azure.com</a>, copy project connection string</li>
+            <li><strong>Content Safety:</strong> Create via portal, same region as OpenAI, copy endpoint and key</li>
+            <li><strong>Application Insights:</strong> Create workspace-based instance, copy connection string</li>
+            <li><strong>Azure AI Search:</strong> Create free-tier instance, copy endpoint and admin key</li>
+          </ol>
+
+          <h3>Automated Provisioning (Bicep / IaC)</h3>
+          <pre><code>az deployment group create \
+  --resource-group rg-prism \
+  --template-file infra/main.bicep \
+  --parameters environmentName=prod location=eastus</code></pre>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             6. Environment Variables
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="env-vars">
+          <h2>6. Environment Variables Reference</h2>
+
+          <h3>Complete <code>.env</code> File</h3>
+          <pre><code># ─── Required for live GitHub data ───
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# ─── Azure OpenAI (LLM-enhanced risk briefs) ───
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-key-here
+AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+
+# ─── Azure AI Foundry (audit trail, evaluation) ───
+AZURE_FOUNDRY_PROJECT_CONNECTION_STRING=your-connection-string
+
+# ─── Azure Content Safety (LLM output filtering) ───
+AZURE_CONTENT_SAFETY_ENDPOINT=https://your-cs.cognitiveservices.azure.com/
+AZURE_CONTENT_SAFETY_KEY=your-key-here
+
+# ─── Application Insights (tracing) ───
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=xxx
+
+# ─── Azure AI Search (History Agent) ───
+AZURE_AI_SEARCH_ENDPOINT=https://your-search.search.windows.net
+AZURE_AI_SEARCH_KEY=your-admin-key</code></pre>
+
+          <h3>Which Vars Are Actually Required?</h3>
+          <p>
+            <strong>None of them are strictly required.</strong> The system works with zero env
+            vars — every feature degrades gracefully:
+          </p>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead>
+                <tr><th>Variable</th><th>If Missing</th><th>Impact</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>GITHUB_TOKEN</code></td><td>Can't fetch live PR diffs</td><td>Must provide diff in request body</td></tr>
+                <tr><td><code>AZURE_OPENAI_*</code></td><td>LLM enhancement skipped</td><td>Deterministic risk brief template used</td></tr>
+                <tr><td><code>AZURE_FOUNDRY_*</code></td><td>Foundry client returns <code>None</code></td><td>Audit trail and evaluation skipped</td></tr>
+                <tr><td><code>AZURE_CONTENT_SAFETY_*</code></td><td>Returns safe-by-default</td><td>No LLM output filtering</td></tr>
+                <tr><td><code>APPLICATIONINSIGHTS_*</code></td><td>Tracing is a no-op</td><td>No latency dashboards</td></tr>
+                <tr><td><code>AZURE_AI_SEARCH_*</code></td><td>Mock data used</td><td>No real incident lookups</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="docs-callout">
+            <strong>"14 Env Vars Seems Like a Lot"</strong>&nbsp; — For local dev you need
+            <strong>1</strong> env var (<code>GITHUB_TOKEN</code>). For basic deployment,
+            <strong>4</strong> vars. For production, use <strong>Managed Identities</strong>
+            (Section 10) — <strong>zero API keys</strong>.
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             7. GitHub Actions Integration
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="github-actions">
+          <h2>7. GitHub Actions Integration (PR Comments)</h2>
+          <p>
+            This is how PRism automatically comments on every PR with a risk assessment.
+          </p>
+
+          <h3>7.1 — Add the Workflow File</h3>
+          <p>Create <code>.github/workflows/prism-gate.yml</code> in your repository:</p>
+          <pre><code>name: PRism Risk Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  prism-analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: diff
+        run: |
+          DIFF=$(gh pr diff ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }})
+          echo "diff&lt;&lt;EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Call PRism API
+        id: prism
+        run: |
+          RESPONSE=$(curl -s -X POST \
+            "${{ vars.PRISM_API_URL }}/analyze" \
+            -H "Content-Type: application/json" \
+            -d '{ ... }')
+          echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+
+      - name: Post PR Comment
+        run: |
+          SCORE=$(echo '${{ steps.prism.outputs.response }}' \
+            | jq -r '.confidence_score')
+          DECISION=$(echo '${{ steps.prism.outputs.response }}' \
+            | jq -r '.decision')
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "## 🔬 PRism Risk Assessment
+          **Score:** $SCORE / 100
+          **Decision:** $DECISION"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}</code></pre>
+
+          <h3>7.2 — Configure Repository Variables</h3>
+          <p>
+            Go to your repo &rarr; Settings &rarr; Secrets and variables &rarr; Actions &rarr;
+            <strong>Variables</strong> tab:
+          </p>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead><tr><th>Variable</th><th>Value</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><code>PRISM_API_URL</code></td>
+                  <td>Your PRism backend URL</td>
+                  <td><code>https://prism-api.eastus.azurecontainerapps.io</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>7.3 — What the PR Comment Looks Like</h3>
+          <div class="docs-callout docs-callout-example">
+            <div>
+              <strong>&#x1F52C; PRism Deployment Risk Assessment</strong><br />
+              <strong>Confidence Score:</strong> 21 / 100<br />
+              <strong>Decision:</strong> blocked<br /><br />
+              &bull; Diff Analyst: Retry logic removed from payment_service.py<br />
+              &bull; History Agent: 3 P1 incidents in the last 90 days<br />
+              &bull; Coverage Agent: Net coverage delta &minus;12%<br />
+              &bull; Timing Agent: Friday 4:50 PM — high incident window<br /><br />
+              <strong>Recommendation:</strong> Delay deployment. Add retry logic back, restore tests.
+            </div>
+          </div>
+          <p>
+            A commit status check is also set, which can be made <strong>required</strong>
+            in branch protection rules to physically prevent merging blocked PRs.
+          </p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             8. VS Code Extension
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="vscode-extension">
+          <h2>8. VS Code Extension</h2>
+          <p>
+            The PRism VS Code extension provides a <strong>sidebar panel</strong> showing
+            the Deployment Confidence Score, per-agent findings, and status badges — directly
+            in the IDE.
+          </p>
+
+          <h3>8.1 — Install from Source (Development)</h3>
+          <pre><code>cd vscode_extension
+npm install
+npm run compile</code></pre>
+          <p>Then press <strong>F5</strong> in VS Code to launch the Extension Development Host.</p>
+
+          <h3>8.2 — Install from VSIX (Distribution)</h3>
+          <pre><code>cd vscode_extension
+npx --no-install vsce package
+# Creates prism-risk-gate-0.1.0.vsix
+
+code --install-extension prism-risk-gate-0.1.0.vsix</code></pre>
+
+          <h3>8.3 — Configuration</h3>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><code>prism.serverUrl</code></td>
+                  <td><code>http://localhost:8000</code></td>
+                  <td>URL of the PRism FastAPI backend. Change to your ACA endpoint for production.</td>
+                </tr>
+                <tr>
+                  <td><code>prism.autoRefresh</code></td>
+                  <td><code>true</code></td>
+                  <td>Automatically re-analyze when the active branch changes.</td>
+                </tr>
+                <tr>
+                  <td><code>prism.refreshIntervalSeconds</code></td>
+                  <td><code>30</code></td>
+                  <td>How often to poll the backend (in seconds).</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>8.4 — Features</h3>
+          <ul>
+            <li><strong>Activity bar icon</strong> — click the PRism prism icon in the left sidebar</li>
+            <li><strong>Score gauge</strong> — color-coded circle (green &ge;70, yellow 40–69, red &lt;40)</li>
+            <li><strong>Agent cards</strong> — each agent shows status badge, score modifier, findings</li>
+            <li><strong>Re-run button</strong> — manually trigger a fresh analysis</li>
+            <li><strong>Full Report panel</strong> — opens a detailed report in a new editor tab</li>
+            <li><strong>Mock mode</strong> — if the backend is unreachable, falls back to mock data</li>
+          </ul>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             9. Production Deployment
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="production-deploy">
+          <h2>9. Production Deployment (Azure Container Apps)</h2>
+
+          <h3>Why Azure Container Apps?</h3>
+          <ul>
+            <li><strong>Scale-to-zero</strong> — no cost when idle (perfect for PR-driven workloads)</li>
+            <li><strong>Serverless containers</strong> — no VM management, no Kubernetes complexity</li>
+            <li><strong>Built-in HTTPS</strong> — automatic TLS certificates</li>
+            <li><strong>Azure RBAC + Managed Identity</strong> — zero API keys in production</li>
+          </ul>
+
+          <h3>Build &amp; Deploy</h3>
+          <pre><code># Build locally
+docker build -t prism-api .
+docker run -p 8000:8000 --env-file .env prism-api
+
+# Or deploy to Azure
+az acr create --name prismacr --resource-group rg-prism \
+  --sku Basic --admin-enabled true
+
+az acr build --registry prismacr --image prism-api:latest .
+
+az containerapp create --name prism-api \
+  --resource-group rg-prism --environment prism-env \
+  --image prismacr.azurecr.io/prism-api:latest \
+  --target-port 8000 --ingress external \
+  --min-replicas 0 --max-replicas 3</code></pre>
+
+          <h3>Get Your Public URL</h3>
+          <pre><code>az containerapp show --name prism-api \
+  --resource-group rg-prism \
+  --query "properties.configuration.ingress.fqdn" \
+  --output tsv</code></pre>
+          <p>Use this URL as <code>PRISM_API_URL</code> in GitHub Actions and <code>prism.serverUrl</code> in the VS Code extension.</p>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             10. Managed Identity
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="managed-identity">
+          <h2>10. Production: Managed Identity (Zero API Keys)</h2>
+          <p>
+            In production on Azure, use <strong>Managed Identities</strong> and
+            <strong>RBAC role assignments</strong> instead of API keys. The Container App
+            gets an identity that Azure trusts — no secrets to manage, rotate, or leak.
+          </p>
+
+          <h3>Enable &amp; Assign Roles</h3>
+          <pre><code># Enable system-assigned identity
+az containerapp identity assign --name prism-api \
+  --resource-group rg-prism --system-assigned
+
+# Assign RBAC roles
+az role assignment create --assignee $IDENTITY \
+  --role "Cognitive Services OpenAI User" --scope &lt;openai-scope&gt;
+
+az role assignment create --assignee $IDENTITY \
+  --role "Cognitive Services User" --scope &lt;content-safety-scope&gt;
+
+az role assignment create --assignee $IDENTITY \
+  --role "Search Index Data Reader" --scope &lt;search-scope&gt;</code></pre>
+
+          <h3>Dev vs Production Auth</h3>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead><tr><th>Environment</th><th>Auth Method</th><th>API Keys</th><th>Env Vars</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><strong>Local dev</strong></td>
+                  <td><code>az login</code> &rarr; DefaultAzureCredential</td>
+                  <td>Optional</td>
+                  <td>1 required</td>
+                </tr>
+                <tr>
+                  <td><strong>CI/CD</strong></td>
+                  <td>GitHub Actions secrets</td>
+                  <td>2–4 secrets</td>
+                  <td>Stored in GitHub</td>
+                </tr>
+                <tr>
+                  <td><strong>Production (ACA)</strong></td>
+                  <td>Managed Identity &rarr; RBAC</td>
+                  <td><strong>Zero</strong></td>
+                  <td>Only endpoints (non-secret)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             11. Verifying the Setup
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="verifying">
+          <h2>11. Verifying the Setup</h2>
+
+          <h3>Health Check</h3>
+          <pre><code>curl https://your-prism-url/health
+# Expected: {"status": "ok", "service": "prism"}</code></pre>
+
+          <h3>Run an Analysis</h3>
+          <pre><code>curl -X POST https://your-prism-url/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pr_number": 1,
+    "repo": "your-org/your-repo",
+    "changed_files": ["src/main.py"],
+    "diff": "- old_code\n+ new_code",
+    "timestamp": "2026-03-10T10:00:00Z"
+  }'</code></pre>
+
+          <h3>VS Code Extension</h3>
+          <ol>
+            <li>Set <code>prism.serverUrl</code> to your backend endpoint</li>
+            <li>Open a Git repository in VS Code</li>
+            <li>Click the PRism icon in the activity bar</li>
+            <li>You should see the score gauge, agent cards, and findings</li>
+          </ol>
+
+          <h3>GitHub Actions</h3>
+          <ol>
+            <li>Add <code>PRISM_API_URL</code> as a repository variable</li>
+            <li>Open a new PR</li>
+            <li>The <code>prism-gate.yml</code> workflow should fire</li>
+            <li>A PR comment should appear with the risk assessment</li>
+            <li>A commit status check should appear (success or failure)</li>
+          </ol>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             12. FAQ / Troubleshooting
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="faq">
+          <h2>12. FAQ / Troubleshooting</h2>
+
+          <h3>Do I need all the Azure resources to use PRism?</h3>
+          <p>
+            <strong>No.</strong> PRism works with zero Azure resources — all features degrade
+            gracefully. Start with the Quick Start (Section 4) and add Azure resources
+            incrementally as needed.
+          </p>
+
+          <h3>Can I use a different LLM provider?</h3>
+          <p>
+            The core scoring engine does <strong>not</strong> use any LLM. LLMs are only used
+            for enhancing the human-readable risk brief and rollback playbook. To swap
+            providers, modify <code>foundry/deployment_config/__init__.py</code>.
+          </p>
+
+          <h3>How do I add my own incident history?</h3>
+          <p>
+            The History Agent queries Azure AI Search. Create an index, upload your incident
+            documents (JSON with fields: <code>file_path</code>, <code>severity</code>,
+            <code>description</code>, <code>date</code>), and set the <code>AZURE_AI_SEARCH_*</code>
+            env vars. Without AI Search, mock data is used.
+          </p>
+
+          <h3>Can I customize the agent weights?</h3>
+          <p>
+            Yes. Edit <code>agents/orchestrator/__init__.py</code> — the
+            <code>AGENT_WEIGHTS</code> dictionary. Weights must sum to 1.0:
+          </p>
+          <pre><code>AGENT_WEIGHTS = {
+    "Diff Analyst":   0.30,  # Code change risk
+    "History Agent":  0.25,  # Past incident risk
+    "Coverage Agent": 0.25,  # Test coverage impact
+    "Timing Agent":   0.20,  # Deploy window risk
+}</code></pre>
+
+          <h3>VS Code shows "Server unreachable — showing mock data"</h3>
+          <p>
+            The extension can't reach the backend at <code>prism.serverUrl</code>. Check:
+          </p>
+          <ol>
+            <li>Is the backend running? (<code>curl http://localhost:8000/health</code>)</li>
+            <li>Is the URL correct in VS Code settings?</li>
+            <li>If using ACA, is the container app running?</li>
+          </ol>
+
+          <h3>Workflow installation fails</h3>
+          <p>
+            Ensure your PAT has the <code>repo</code> scope and that you have write
+            access to the target repository. If the repo already contains
+            <code>.github/workflows/prism.yml</code>, the installer will update it in place.
+          </p>
+
+          <h3>How to make the PRism check required for merging?</h3>
+          <ol>
+            <li>Go to your repo &rarr; Settings &rarr; Branches &rarr; Branch protection rules</li>
+            <li>Edit the rule for your main branch</li>
+            <li>Under "Require status checks to pass", add <strong>"PRism Risk Gate"</strong></li>
+            <li>Now PRs with a <code>blocked</code> verdict cannot be merged</li>
+          </ol>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════
+             Setup Complexity Summary
+             ═══════════════════════════════════════════════════════ -->
+        <section class="docs-section" id="summary">
+          <h2>Setup Complexity Summary</h2>
+          <div class="docs-table-wrap">
+            <table class="docs-table">
+              <thead><tr><th>Tier</th><th>Time</th><th>What You Get</th><th>What You Need</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Local dev</strong></td><td>5 min</td><td>Full scoring engine, mock data, API</td><td>Python + <code>pip install</code></td></tr>
+                <tr><td><strong>+ GitHub Actions</strong></td><td>15 min</td><td>Automated PR comments + status checks</td><td>1 workflow file + 1 repo variable</td></tr>
+                <tr><td><strong>+ Azure OpenAI</strong></td><td>25 min</td><td>LLM-enhanced risk briefs + playbooks</td><td>3 env vars</td></tr>
+                <tr><td><strong>+ Full Azure</strong></td><td>45 min</td><td>Tracing, content safety, AI Search</td><td>All env vars (or Bicep one-liner)</td></tr>
+                <tr><td><strong>Production (ACA)</strong></td><td>1 hr</td><td>Scale-to-zero, zero API keys, HTTPS</td><td>Managed Identity + RBAC</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            PRism scales from a <strong>zero-config local tool</strong> to a
+            <strong>fully governed enterprise deployment</strong> — incrementally,
+            with no breaking changes at any step.
+          </p>
+        </section>
+
+        <!-- ── API Reference link ─────────────────────────────── -->
+        <section class="docs-section">
+          <h2>API Reference</h2>
+          <p>
+            The setup platform exposes a RESTful API documented with OpenAPI. Visit
+            <a href="/api/docs" target="_blank" rel="noopener">/api/docs</a> for the
+            interactive Swagger UI, or
+            <a href="/api/redoc" target="_blank" rel="noopener">/api/redoc</a> for ReDoc.
+          </p>
+        </section>
+
+      </div><!-- .docs-wrap -->
+    </div><!-- .docs-layout -->
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <img src="logo.png" alt="PRism" class="footer-logo" />
+        <span>PRism — Deployment Risk Intelligence</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener">GitHub</a>
+        <a href="/docs.html">Docs</a>
+        <a href="/api/docs" target="_blank" rel="noopener">API</a>
+        <a href="/app.html#dashboard">Dashboard</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

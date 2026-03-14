@@ -13,11 +13,13 @@ import re
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel
 
 from ..models import WorkflowInstallRequest
-from ..services import github_service
+from ..services import github_service, auth_service
+from ..services.db import RegistrationRow, UserRow, get_session, async_session, _uuid, _now
+from .auth import COOKIE_NAME
 
 # GitHub owner/repo names: alphanumeric, hyphens, dots, underscores
 _SAFE_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -72,7 +74,7 @@ async def validate_token(req: ValidateTokenRequest) -> dict:
 
 
 @router.post("/install-workflow")
-async def install_workflow(req: WorkflowInstallRequest) -> dict:
+async def install_workflow(req: WorkflowInstallRequest, request: Request) -> dict:
     """Commit prism-gate.yml to the target repository.
 
     Uses the GitHub Contents API to create or update
@@ -116,11 +118,65 @@ async def install_workflow(req: WorkflowInstallRequest) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # If user is logged in, auto-save the registration to DB
+    registration_id = await _save_registration(request, req, orchestrator_url)
+
     return {
         "success": True,
         "message": f"prism-gate.yml installed in {req.owner}/{req.repo}",
         "commit_url": result.get("commit", {}).get("html_url"),
+        "registration_id": registration_id,
     }
+
+
+async def _save_registration(request: Request, req: WorkflowInstallRequest, orchestrator_url: str) -> str | None:
+    """If the user is logged in, persist/update a registration row. Returns registration_id or None."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+    payload = auth_service.verify_jwt(token)
+    if not payload:
+        return None
+
+    user_id = payload.get("sub")
+    try:
+        encrypted_pat = auth_service.encrypt_pat(req.token)
+    except RuntimeError:
+        return None
+
+    from sqlalchemy import select
+    async with async_session() as session:
+        # Check if registration already exists for this user + owner + repo
+        stmt = (
+            select(RegistrationRow)
+            .where(RegistrationRow.user_id == user_id)
+            .where(RegistrationRow.owner == req.owner)
+            .where(RegistrationRow.repo == req.repo)
+            .where(RegistrationRow.status == "active")
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+
+        if existing:
+            existing.gh_pat_encrypted = encrypted_pat
+            existing.orchestrator_url = orchestrator_url
+            existing.workflow_installed = True
+            existing.updated_at = _now()
+            await session.commit()
+            return existing.id
+        else:
+            row = RegistrationRow(
+                id=_uuid(),
+                user_id=user_id,
+                gh_pat_encrypted=encrypted_pat,
+                owner=req.owner,
+                repo=req.repo,
+                orchestrator_url=orchestrator_url,
+                workflow_installed=True,
+                status="active",
+            )
+            session.add(row)
+            await session.commit()
+            return row.id
 
 
 @router.get("/status/{owner}/{repo}")
