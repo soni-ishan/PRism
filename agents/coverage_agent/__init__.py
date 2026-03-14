@@ -71,7 +71,7 @@ async def _post_autofix_comment(
 ) -> None:
     """Post a comment on the PR to trigger Copilot.
 
-    Mentioning @github-copilot (or @copilot) in a PR comment is a common
+    Mentioning @copilot in a PR comment is a common
     trigger for the agent to analyze the PR and suggest fixes.
     """
     if not files_needing_tests:
@@ -91,7 +91,7 @@ async def _post_autofix_comment(
     body = f"""\
 ### [PRism] Coverage Analysis
 
-@github-copilot The PRism deployment analysis has identified missing test coverage in this PR.
+@copilot The PRism deployment analysis has identified missing test coverage in this PR.
 
 **Files needing tests:**
 {files_list}
