@@ -23,14 +23,25 @@ COPILOT_TRIGGER_LABEL = "copilot-issue-agent"
 COPILOT_BOT_LOGIN = "github-copilot[bot]"
 
 
+def _test_module_name(source_path: str) -> str:
+    """Derive the test module name (without prefix/suffix) for a source file."""
+    p = PurePosixPath(source_path)
+    return p.parent.name if p.name == "__init__.py" else p.stem
+
+
 def _expected_test_path(source_path: str) -> str:
     """Map a source path to a conventional test path."""
-    p = PurePosixPath(source_path)
-    if p.name == "__init__.py":
-        target_name = p.parent.name
-    else:
-        target_name = p.stem
-    return f"tests/test_{target_name}.py"
+    return f"tests/test_{_test_module_name(source_path)}.py"
+
+
+def _candidate_test_paths(source_path: str) -> list[str]:
+    """Return all conventional test paths for a source file.
+
+    Checks both the top-level ``tests/`` directory and the ``tests/unit/``
+    subdirectory so that tests organised in either layout are recognised.
+    """
+    name = _test_module_name(source_path)
+    return [f"tests/test_{name}.py", f"tests/unit/test_{name}.py"]
 
 
 async def _get_pr_branch(client: httpx.AsyncClient, repo: str, pr_number: int) -> str:
@@ -167,11 +178,15 @@ async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentRes
                 if not filename.endswith(".py") or filename.startswith("tests/"):
                     continue
 
-                expected_test = _expected_test_path(filename)
-                contents_url = f"https://api.github.com/repos/{repo}/contents/{expected_test}"
-                test_response = await client.get(contents_url)
+                test_exists = False
+                for test_candidate in _candidate_test_paths(filename):
+                    contents_url = f"https://api.github.com/repos/{repo}/contents/{test_candidate}"
+                    test_response = await client.get(contents_url)
+                    if test_response.status_code != 404:
+                        test_exists = True
+                        break
 
-                if test_response.status_code == 404:
+                if not test_exists:
                     risk_score += 15
                     findings.append(f"No test file found for {filename}")
                     files_needing_tests.append(filename)

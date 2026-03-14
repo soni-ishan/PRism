@@ -92,7 +92,9 @@ async def test_some_files_missing_tests_warning_status():
         ),
         f"https://api.github.com/repos/{repo}/contents/tests/test_diff_agent.py": MockResponse(200, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_agent.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_agent.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_server.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_server.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/2": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
     }
     post_routes = {
@@ -112,7 +114,7 @@ async def test_some_files_missing_tests_warning_status():
     # Only ONE POST call: create issue with assignees included
     assert len(mock_client.post_calls) == 1
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][1]["assignees"] == ["github-copilot[bot]"]
 
 
 @pytest.mark.asyncio
@@ -127,9 +129,13 @@ async def test_many_files_missing_tests_critical_status():
     get_routes = {
         f"https://api.github.com/repos/{repo}/pulls/3/files": MockResponse(200, changed_files),
         f"https://api.github.com/repos/{repo}/contents/tests/test_a.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_a.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_b.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_b.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_c.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_c.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/contents/tests/test_d.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_d.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/3": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
     }
     post_routes = {
@@ -147,7 +153,7 @@ async def test_many_files_missing_tests_critical_status():
     assert result.risk_score_modifier == 60
     # Only ONE POST: create issue with copilot assignee in body
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][1]["assignees"] == ["github-copilot[bot]"]
 
 
 @pytest.mark.asyncio
@@ -159,6 +165,7 @@ async def test_single_missing_test_file_triggers_issue_creation():
             [{"filename": "agents/coverage_agent/__init__.py", "status": "modified"}],
         ),
         f"https://api.github.com/repos/{repo}/contents/tests/test_coverage_agent.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_coverage_agent.py": MockResponse(404, {}),
         f"https://api.github.com/repos/{repo}/pulls/5": MockResponse(200, {"head": {"ref": "feature/test-branch"}}),
     }
     post_routes = {
@@ -175,7 +182,7 @@ async def test_single_missing_test_file_triggers_issue_creation():
     # Only ONE POST: create issue with copilot assignee in body
     assert len(mock_client.post_calls) == 1
     assert mock_client.post_calls[0][0].endswith(f"/repos/{repo}/issues")
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][1]["assignees"] == ["github-copilot[bot]"]
 
 
 @pytest.mark.asyncio
@@ -200,7 +207,7 @@ async def test_removed_test_file_triggers_warning_and_issue_creation():
     assert result.risk_score_modifier == 25
     # Only ONE POST: create issue with copilot assignee in body
     assert len(mock_client.post_calls) == 1
-    assert mock_client.post_calls[0][1]["assignees"] == ["copilot"]
+    assert mock_client.post_calls[0][1]["assignees"] == ["github-copilot[bot]"]
 
 
 @pytest.mark.asyncio
@@ -240,6 +247,7 @@ async def test_skip_autofix_prevents_issue_creation():
             [{"filename": "agents/coverage_agent/__init__.py", "status": "modified"}],
         ),
         f"https://api.github.com/repos/{repo}/contents/tests/test_coverage_agent.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_coverage_agent.py": MockResponse(404, {}),
     }
 
     mock_client = MockAsyncClient(get_routes)
@@ -248,4 +256,27 @@ async def test_skip_autofix_prevents_issue_creation():
 
     assert result.risk_score_modifier == 15
     # skip_autofix=True: no POST calls to create or assign issues
+    assert len(mock_client.post_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_unit_subdir_test_file_counts_as_covered():
+    """A test in tests/unit/ should count as coverage even if tests/test_{name}.py is absent."""
+    repo = "devDays/PRism"
+    get_routes = {
+        f"https://api.github.com/repos/{repo}/pulls/11/files": MockResponse(
+            200,
+            [{"filename": "agents/orchestrator/__init__.py", "status": "modified"}],
+        ),
+        # Primary path absent — but unit/ path present
+        f"https://api.github.com/repos/{repo}/contents/tests/test_orchestrator.py": MockResponse(404, {}),
+        f"https://api.github.com/repos/{repo}/contents/tests/unit/test_orchestrator.py": MockResponse(200, {}),
+    }
+
+    mock_client = MockAsyncClient(get_routes)
+    with patch("agents.coverage_agent.httpx.AsyncClient", return_value=mock_client):
+        result = await run(pr_number=11, repo=repo)
+
+    assert result.status == "pass"
+    assert result.risk_score_modifier == 0
     assert len(mock_client.post_calls) == 0
