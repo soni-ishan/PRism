@@ -114,7 +114,7 @@ Please see the analysis above and generate the missing `pytest` modules. Ensure 
         logger.warning("Failed to post PR comment: %s", exc)
 
 
-async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentResult:
+async def run(pr_number: int, repo: str, skip_autofix: bool = False, gh_token: str | None = None) -> AgentResult:
     """Run coverage risk checks for a pull request."""
     findings: list[str] = []
     files_needing_tests: list[str] = []

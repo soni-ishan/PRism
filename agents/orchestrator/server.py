@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from email.utils import parsedate_to_datetime
@@ -201,6 +202,13 @@ async def health():
 
 # ── Freemium usage stats ──────────────────────────────────────────────
 
+def _require_client_id(x_client_id: Optional[str] = Header(None)) -> str:
+    """Extract X-Client-ID without consuming a freemium credit."""
+    if not x_client_id:
+        raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    return x_client_id
+
+
 @app.get("/usage")
 async def get_usage(client_id: str = Depends(_require_client_id)):
     """Return the current freemium credit usage for the caller without consuming a credit."""
@@ -349,9 +357,10 @@ async def _fetch_commit_timestamp(repo: str, sha: str) -> "datetime | None":
     The JSON endpoints (both ``/commits`` and ``/git/commits``) normalise
     all timestamps to UTC, which is why we use the patch format instead.
     """
+    _gh_token = os.getenv("GH_PAT", "")
     headers: dict[str, str] = {"Accept": "application/vnd.github.patch"}
-    if _GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
+    if _gh_token:
+        headers["Authorization"] = f"Bearer {_gh_token}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(

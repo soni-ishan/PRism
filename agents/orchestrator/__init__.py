@@ -217,8 +217,23 @@ async def orchestrate(
         len(payload.changed_files),
     )
 
-    # 1. Fire all agents concurrently
-    agent_results = await _import_and_run_agents(payload, repo_ctx=repo_ctx)
+    # Lazy import of tracing — no-op if Foundry module is unavailable
+    try:
+        from foundry.deployment_config import trace_orchestrate, trace_agent_call as _trace_verdict
+    except ImportError:
+        from contextlib import asynccontextmanager as _acm
+
+        @_acm
+        async def trace_orchestrate(pr_number: int, repo: str):  # type: ignore[misc]
+            yield None
+
+        @_acm
+        async def _trace_verdict(name: str):  # type: ignore[misc]
+            yield None
+
+    async with trace_orchestrate(payload.pr_number, payload.repo) as root_span:
+        # 1. Fire all agents concurrently
+        agent_results = await _import_and_run_agents(payload, repo_ctx=repo_ctx)
 
         # 2. Pass to Verdict Agent
         try:
