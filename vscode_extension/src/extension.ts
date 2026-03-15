@@ -9,7 +9,7 @@
 import * as vscode from "vscode";
 
 import { SidebarProvider } from "./sidebarProvider";
-import { v4 as uuidv4 } from "uuid";
+import * as crypto from "crypto";
 
 let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -17,7 +17,7 @@ export function activate(context: vscode.ExtensionContext) {
   // 1. Get or generate a unique ID for this user's machine
   let clientId = context.globalState.get<string>('prism.clientId');
   if (!clientId) {
-    clientId = uuidv4();
+    clientId = crypto.randomUUID();
     context.globalState.update('prism.clientId', clientId);
   }
 
