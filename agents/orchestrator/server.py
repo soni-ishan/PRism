@@ -73,7 +73,7 @@ app = FastAPI(
 # Tracks: { "client_uuid": {"count": int, "first_seen": float} }
 # Entries older than _USAGE_TTL_SECONDS are evicted to bound memory growth.
 USAGE_TRACKER: dict = {}
-FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+FREE_TIER_LIMIT = 27  # 5 PR evaluations ~= $1 of Azure OpenAI credits
 _USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30-day rolling window
 
 from typing import Optional
