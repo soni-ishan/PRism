@@ -180,7 +180,7 @@ jobs:
             --platform linux/amd64 \
             -t $IMAGE_TAG \
             -t $IMAGE_LATEST \
-            -f foundry/deployment_config/docker/Dockerfile.orchestrator \
+            -f foundry/deployment_config/orchestrator/Dockerfile \
             .
           
           docker push $IMAGE_TAG

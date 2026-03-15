@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+
+    "_comment_shared": { "value": "── Shared across all deployments ──" },
+    "projectName":              { "value": "prism" },
+    "environment":              { "value": "dev" },
+    "location":                 { "value": "eastus2" },
+
+    "_comment_infra": { "value": "── Infrastructure (infra.bicep) ──" },
+    "openAiModelDeployment":    { "value": "gpt-4o" },
+    "openAiModelVersion":       { "value": "2024-11-20" },
+    "openAiModelCapacity":      { "value": 30 },
+    "pgAdminLogin":             { "value": "prismadmin" },
+    "pgAdminPassword":          { "value": "Pr1sm@Dev2026!" },
+    "pgSkuTier":                { "value": "Burstable" },
+    "pgSkuName":                { "value": "Standard_B1ms" },
+    "pgStorageSizeGB":          { "value": 32 },
+    "deployFunctionApp":        { "value": false },
+
+    "_comment_orchestrator": { "value": "── Orchestrator (orchestrator.bicep) ──" },
+    "githubWebhookSecret":      { "value": "" },
+    "agentTimeoutSeconds":      { "value": 60 },
+
+    "_comment_platform": { "value": "── Platform (platform-app.bicep) ──" },
+    "orchestratorUrl":          { "value": "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io" },
+    "platformOrigin":           { "value": "" },
+    "githubOAuthClientId":      { "value": "Ov23lifmvn451MTdYGV6" },
+    "githubOAuthClientSecret":  { "value": "e6a566810c9a1799a4181a79b58be5800ce867f1" },
+    "azureAdClientId":          { "value": "7f334beb-0585-4380-b6c9-ca364a6d5223" },
+    "azureAdClientSecret":      { "value": "xpW8Q~Mp.fp_xbJH_M8HgcCwjaGV6ik9gZW4.b-P" },
+    "azureAdTenantId":          { "value": "0b738f96-6f9f-4a97-aebc-c74a054ab751" },
+    "githubOAuthRedirectUri":   { "value": "https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/api/auth/github/callback" },
+    "azureAdRedirectUri":       { "value": "https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/api/setup/azure/callback" },
+    "jwtSecret":                { "value": "uTiKSyMRur-vKEbU-nauaXTAOOqAuFxQ83pUG54_wWY" },
+
+    "_comment_security": { "value": "── Shared secrets ──" },
+    "encryptionKey":            { "value": "G64EZHrvaEPOwGSQOuIjGceudi88DKShhpyl2CiO1yk=" }
+  }
+}

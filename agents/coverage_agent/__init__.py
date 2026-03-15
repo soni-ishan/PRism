@@ -114,14 +114,16 @@ Please see the analysis above and generate the missing `pytest` modules. Ensure 
         logger.warning("Failed to post PR comment: %s", exc)
 
 
-async def run(pr_number: int, repo: str, skip_autofix: bool = False) -> AgentResult:
+async def run(pr_number: int, repo: str, skip_autofix: bool = False, gh_token: str | None = None) -> AgentResult:
     """Run coverage risk checks for a pull request."""
     findings: list[str] = []
     files_needing_tests: list[str] = []
     risk_score = 0
 
     try:
-        token = os.environ["GH_PAT"]
+        token = gh_token or os.environ.get("GH_PAT", "")
+        if not token:
+            raise RuntimeError("No GitHub token available (gh_token param and GH_PAT env var both empty)")
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",

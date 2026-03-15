@@ -3,238 +3,329 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PRism Setup Wizard</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>PRism — Deployment Risk Intelligence</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/landing.css" />
 </head>
 <body>
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="site-header">
     <div class="header-inner">
-      <span class="logo">🔬 PRism</span>
-      <span class="tagline">Deployment Risk Intelligence, Powered by Agentic AI</span>
+      <a href="/" class="logo-link">
+        <span class="logo"><img src="logo.png" alt="PRism" class="logo-img" />PRism</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#integrations">Integrations</a>
+        <a href="#screenshots">Gallery</a>
+        <a href="#resources">Resources</a>
+        <a href="/docs.html">Docs</a>
+      </nav>
+      <div class="header-right" id="header-right"></div>
     </div>
   </header>
 
-  <!-- ── Progress bar ───────────────────────────────────────── -->
-  <div class="progress-bar-wrap" aria-label="Setup progress">
-    <div class="progress-bar" id="progressBar" style="width: 0%"></div>
-  </div>
+  <!-- ══════════════════════════════════════════════════════════
+       HERO
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-hero">
+    <div class="hero-glow"></div>
+    <div class="hero-content">
+      <img src="logo.png" alt="PRism" class="hero-logo" />
+      <h1 class="hero-title">
+        Deployment Risk Intelligence,<br />
+        <span class="hero-accent">Powered by Agentic AI</span>
+      </h1>
+      <p class="hero-subtitle">
+        PRism analyses every pull request across code diffs, incident history,
+        deployment timing, and test coverage — then gives you a confidence score
+        before you ship.
+      </p>
+      <div class="hero-actions" id="hero-actions">
+        <!-- Populated by JS based on auth state -->
+        <a href="/api/auth/github/login" class="btn btn-github btn-lg" id="hero-cta-login">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          Sign in with GitHub
+        </a>
+        <a href="/app.html#dashboard" class="btn btn-primary btn-lg hidden" id="hero-cta-dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Go to Dashboard
+        </a>
+        <a href="#integrations" class="btn btn-secondary btn-lg">Learn more</a>
+      </div>
+      <p class="hint hero-hint" id="hero-hint">
+        We only request <code>read:user</code> and <code>user:email</code> scopes.
+      </p>
+    </div>
+  </section>
 
-  <!-- ── Step indicators ────────────────────────────────────── -->
-  <nav class="steps-nav" aria-label="Wizard steps">
-    <button class="step-pill active" id="pill-1" onclick="goToStep(1)">
-      <span class="step-num" id="step-icon-1">1</span>
-      <span class="step-label">Connect GitHub</span>
-    </button>
-    <div class="step-connector"></div>
-    <button class="step-pill" id="pill-2" onclick="goToStep(2)">
-      <span class="step-num" id="step-icon-2">2</span>
-      <span class="step-label">Connect Azure</span>
-    </button>
-    <div class="step-connector"></div>
-    <button class="step-pill" id="pill-3" onclick="goToStep(3)">
-      <span class="step-num" id="step-icon-3">3</span>
-      <span class="step-label">Verify</span>
-    </button>
-  </nav>
-
-  <!-- ── Main wizard content ────────────────────────────────── -->
-  <main class="wizard-wrap">
-
-    <!-- ── Step 1: Connect GitHub ─────────────────────────── -->
-    <section class="wizard-step" id="step-1" aria-labelledby="step1-title">
-      <div class="step-card">
-        <div class="step-card-header">
-          <span class="step-emoji">🐙</span>
-          <h2 id="step1-title">Connect GitHub</h2>
-          <span class="step-status" id="step1-status"></span>
+  <!-- ══════════════════════════════════════════════════════════
+       HOW IT WORKS — Pipeline overview
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-section" id="how-it-works">
+    <div class="section-inner">
+      <h2 class="section-title">How PRism Works</h2>
+      <p class="section-subtitle">A multi-agent AI pipeline that runs on every pull request</p>
+      <div class="pipeline-flow">
+        <div class="pipeline-step">
+          <div class="pipeline-num">1</div>
+          <h3>PR Opened</h3>
+          <p>A GitHub Actions workflow fires automatically when a PR is created or updated.</p>
         </div>
-        <p class="step-desc">
-          Install the <strong>PRism GitHub App</strong> on your repository. This lets PRism
-          automatically analyse every pull request and post a risk summary as a comment.
-        </p>
-
-        <!-- Not-yet-connected state -->
-        <div id="github-connect-actions">
-          <button class="btn btn-primary" id="btnGitHubInstall" onclick="startGitHubConnect()">
-            <img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png"
-                 alt="" class="btn-icon" />
-            Install PRism on GitHub
-          </button>
-          <p class="hint">
-            You will be redirected to GitHub to select which repositories to install the App on.
-            The PRism workflow file (<code>.github/workflows/prism-gate.yml</code>) will be
-            committed automatically.
-          </p>
+        <div class="pipeline-arrow">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
-
-        <!-- Connected state (hidden until connected) -->
-        <div id="github-connected-panel" class="hidden">
-          <div class="success-banner">
-            <span>✅</span>
-            <div>
-              <strong>GitHub connected!</strong>
-              <p id="github-connected-detail" class="m0"></p>
-            </div>
-          </div>
-
-          <!-- Manual workflow install (for OAuth flow) -->
-          <div id="github-workflow-section" class="hidden">
-            <h3 class="subsection-title">Install workflow into a repository</h3>
-            <p class="hint">
-              Enter the repository you want to add PRism to. The workflow file will be committed
-              automatically using your GitHub token.
-            </p>
-            <div class="form-row">
-              <input id="inputOwner" class="text-input" placeholder="owner / org" />
-              <span class="form-sep">/</span>
-              <input id="inputRepo" class="text-input" placeholder="repository" />
-              <button class="btn btn-secondary" onclick="installWorkflow()">Install Workflow</button>
-            </div>
-            <div id="workflow-install-result" class="hidden"></div>
-          </div>
-
-          <button class="btn btn-primary" onclick="goToStep(2)">
-            Next: Connect Azure →
-          </button>
+        <div class="pipeline-step">
+          <div class="pipeline-num">2</div>
+          <h3>Agents Analyse</h3>
+          <p>Diff, History, Coverage, and Timing agents each score the change independently.</p>
+        </div>
+        <div class="pipeline-arrow">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">3</div>
+          <h3>Verdict</h3>
+          <p>The orchestrator merges findings into a confidence score and greenlight or block decision.</p>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- ── Step 2: Connect Azure ──────────────────────────── -->
-    <section class="wizard-step hidden" id="step-2" aria-labelledby="step2-title">
-      <div class="step-card">
-        <div class="step-card-header">
-          <span class="step-emoji">☁️</span>
-          <h2 id="step2-title">Connect Azure</h2>
-          <span class="step-status" id="step2-status"></span>
-        </div>
-        <p class="step-desc">
-          Sign into your Azure account so PRism can discover your Log Analytics workspaces and
-          connect the ingestion pipeline.
-        </p>
+  <!-- ══════════════════════════════════════════════════════════
+       INTEGRATIONS
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-section section-dark" id="integrations">
+    <div class="section-inner">
+      <h2 class="section-title">Integrations</h2>
+      <p class="section-subtitle">PRism plugs into the tools you already use</p>
 
-        <!-- Not-yet-authed state -->
-        <div id="azure-auth-actions">
-          <button class="btn btn-azure" id="btnAzureSignIn" onclick="startAzureConnect()">
-            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a8/Microsoft_Azure_Logo.svg"
-                 alt="" class="btn-icon" />
-            Sign in with Azure
-          </button>
-          <p class="hint">
-            PRism requests read-only access to <code>Azure Management</code> so it can list
-            your subscriptions and Log Analytics workspaces.
+      <div class="integration-grid">
+        <!-- VS Code Extension -->
+        <div class="integration-card integration-card-featured">
+          <div class="integration-badge">VS Code Extension</div>
+          <div class="integration-icon integration-icon-vscode">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="36" height="36">
+              <path d="M17.583 2.006a1.122 1.122 0 0 0-.458.106L10.2 5.616 5.55 2.178a.747.747 0 0 0-.857.028l-2.37 1.96a.752.752 0 0 0-.006 1.153l3.95 3.272-3.95 3.272a.752.752 0 0 0 .006 1.153l2.37 1.96a.747.747 0 0 0 .857.028l4.65-3.438 6.925 3.504A1.125 1.125 0 0 0 18.75 14.1V3.442a1.125 1.125 0 0 0-1.167-1.436zM15.75 11.36l-4.4-2.22 4.4-2.22v4.44z"/>
+            </svg>
+          </div>
+          <h3>VS Code Sidebar</h3>
+          <p>
+            See live deployment confidence right in your editor. The PRism sidebar
+            shows a real-time gauge, agent findings, and a full risk report — all without
+            leaving VS Code.
           </p>
-        </div>
-
-        <!-- Azure authed — subscription/workspace picker -->
-        <div id="azure-picker-panel" class="hidden">
-          <div class="form-group">
-            <label for="subSelect" class="form-label">Subscription</label>
-            <select id="subSelect" class="select-input" onchange="onSubscriptionChange()">
-              <option value="">— Loading subscriptions… —</option>
-            </select>
-          </div>
-
-          <div class="form-group" id="ws-group" style="display:none">
-            <label for="wsSelect" class="form-label">Log Analytics Workspace</label>
-            <select id="wsSelect" class="select-input">
-              <option value="">— Select a workspace —</option>
-            </select>
-          </div>
-
-          <button class="btn btn-primary" id="btnConnectWs" onclick="connectWorkspace()"
-                  style="display:none">
-            Connect Workspace
-          </button>
-
-          <div id="workspace-connect-result" class="hidden"></div>
-        </div>
-
-        <!-- Connected state -->
-        <div id="azure-connected-panel" class="hidden">
-          <div class="success-banner">
-            <span>✅</span>
-            <div>
-              <strong>Azure workspace connected!</strong>
-              <p id="azure-connected-detail" class="m0"></p>
-            </div>
-          </div>
-          <button class="btn btn-primary" onclick="goToStep(3)">
-            Next: Verify →
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- ── Step 3: Verify ─────────────────────────────────── -->
-    <section class="wizard-step hidden" id="step-3" aria-labelledby="step3-title">
-      <div class="step-card">
-        <div class="step-card-header">
-          <span class="step-emoji">🚀</span>
-          <h2 id="step3-title">Verify Setup</h2>
-          <span class="step-status" id="step3-status"></span>
-        </div>
-
-        <div class="summary-grid" id="setup-summary">
-          <div class="summary-item">
-            <span class="summary-icon" id="summary-github-icon">⏳</span>
-            <div>
-              <strong>GitHub</strong>
-              <p id="summary-github-detail" class="m0 hint">Not connected yet</p>
-            </div>
-          </div>
-          <div class="summary-item">
-            <span class="summary-icon" id="summary-azure-icon">⏳</span>
-            <div>
-              <strong>Azure</strong>
-              <p id="summary-azure-detail" class="m0 hint">Not connected yet</p>
-            </div>
-          </div>
-        </div>
-
-        <h3 class="subsection-title">Next steps</h3>
-        <ol class="next-steps-list">
-          <li>
-            Open a test pull request in your connected repository.
-          </li>
-          <li>
-            PRism will automatically analyse the PR and post a risk comment within ~30 seconds.
-          </li>
-          <li>
-            Check the
-            <a id="orchestrator-health-link" href="#" target="_blank" rel="noopener">
-              orchestrator health endpoint ↗
+          <ul class="integration-features">
+            <li>Live confidence gauge (0–100)</li>
+            <li>Per-agent finding cards</li>
+            <li>Full report &amp; rollback playbook</li>
+            <li>Auto-refresh on branch changes</li>
+          </ul>
+          <div class="integration-actions">
+            <a href="https://marketplace.visualstudio.com/" class="btn btn-sm btn-primary" target="_blank" rel="noopener">
+              Install Extension
             </a>
-            to verify it is running.
-          </li>
-        </ol>
-
-        <div id="orchestrator-status" class="loading-tag">Checking orchestrator…</div>
-
-        <div class="env-hint" id="env-hint" style="display:none">
-          <h3 class="subsection-title">Environment variables to set</h3>
-          <p class="hint">Copy these into your deployment environment:</p>
-          <pre id="env-output" class="code-block"></pre>
+            <a href="/docs.html#vscode" class="btn btn-sm btn-secondary">Learn more</a>
+          </div>
         </div>
 
-        <button class="btn btn-success" onclick="finishSetup()">
-          🎉 Finish Setup
-        </button>
-      </div>
-    </section>
+        <!-- GitHub Actions -->
+        <div class="integration-card">
+          <div class="integration-icon integration-icon-github">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="32" height="32"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          </div>
+          <h3>GitHub Actions</h3>
+          <p>
+            One-click workflow installation adds a PR gate that triggers on every
+            pull request. PRism posts risk summaries as check-run annotations.
+          </p>
+          <ul class="integration-features">
+            <li>Automatic PR gate workflow</li>
+            <li>Check-run annotations</li>
+            <li>PAT-based auth setup</li>
+          </ul>
+        </div>
 
-  </main>
+        <!-- Azure Log Analytics -->
+        <div class="integration-card">
+          <div class="integration-icon integration-icon-azure">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="32" height="32"><path d="M2 20h20"/><path d="M5 20V8l7-5 7 5v12"/><path d="M9 20v-6h6v6"/></svg>
+          </div>
+          <h3>Azure Log Analytics</h3>
+          <p>
+            Connect your Azure subscription and Log Analytics workspace to feed
+            real-time production telemetry into the risk model.
+          </p>
+          <ul class="integration-features">
+            <li>OAuth-based Azure sign-in</li>
+            <li>Subscription &amp; workspace picker</li>
+            <li>Real-time telemetry streaming</li>
+          </ul>
+        </div>
+
+        <!-- Agentic AI -->
+        <div class="integration-card">
+          <div class="integration-icon integration-icon-ai">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9l2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9l2.83-2.83"/></svg>
+          </div>
+          <h3>Multi-Agent AI</h3>
+          <p>
+            Five specialised agents — Diff Analyst, History, Coverage, Timing, and
+            Verdict — powered by Azure OpenAI collaborate to produce a single risk score.
+          </p>
+          <ul class="integration-features">
+            <li>Diff Analyst &amp; Coverage agents</li>
+            <li>History &amp; Timing agents</li>
+            <li>Verdict &amp; Orchestrator</li>
+          </ul>
+        </div>
+
+        <!-- Setup Portal -->
+        <div class="integration-card">
+          <div class="integration-icon integration-icon-portal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <h3>Setup Portal</h3>
+          <p>
+            A guided 3-step wizard connects GitHub and Azure in minutes.
+            Manage multiple repositories and workspaces from one dashboard.
+          </p>
+          <ul class="integration-features">
+            <li>3-step guided setup wizard</li>
+            <li>Multi-repo management</li>
+            <li>Registration dashboard</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       SCREENSHOTS / GALLERY
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-section" id="screenshots">
+    <div class="section-inner">
+      <h2 class="section-title">See It in Action</h2>
+      <p class="section-subtitle">Screenshots from the portal, VS Code extension, and GitHub integration</p>
+
+      <div class="gallery-grid">
+        <div class="gallery-item" id="gallery-1">
+          <div class="gallery-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>VS Code Sidebar</span>
+          </div>
+        </div>
+        <div class="gallery-item" id="gallery-2">
+          <div class="gallery-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>Setup Portal Dashboard</span>
+          </div>
+        </div>
+        <div class="gallery-item" id="gallery-3">
+          <div class="gallery-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>GitHub PR Check</span>
+          </div>
+        </div>
+        <div class="gallery-item" id="gallery-4">
+          <div class="gallery-placeholder">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>Agent Analysis Report</span>
+          </div>
+        </div>
+      </div>
+      <p class="hint gallery-hint">Upload your own screenshots to replace these placeholders.</p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       RESOURCES — Links & Videos
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-section section-dark" id="resources">
+    <div class="section-inner">
+      <h2 class="section-title">Resources</h2>
+      <p class="section-subtitle">Helpful links, guides, and videos to get the most out of PRism</p>
+
+      <div class="resources-grid">
+        <a href="/docs.html" class="resource-card">
+          <div class="resource-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </div>
+          <h3>Documentation</h3>
+          <p>Architecture overview, agent details, and setup instructions</p>
+        </a>
+        <a href="/api/docs" target="_blank" rel="noopener" class="resource-card">
+          <div class="resource-icon resource-icon-api">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
+          </div>
+          <h3>API Reference</h3>
+          <p>Interactive OpenAPI docs for the PRism backend endpoints</p>
+        </a>
+        <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener" class="resource-card">
+          <div class="resource-icon resource-icon-gh">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="28" height="28"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          </div>
+          <h3>GitHub Repository</h3>
+          <p>Source code, issues, and contribution guidelines</p>
+        </a>
+        <!-- Video placeholder -->
+        <div class="resource-card resource-card-video" id="resource-video-1">
+          <div class="resource-icon resource-icon-video">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <h3>Getting Started Video</h3>
+          <p>Coming soon — walkthrough of the full setup experience</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- ── Footer ─────────────────────────────────────────────── -->
   <footer class="site-footer">
-    <p>
-      <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener">PRism on GitHub</a>
-      &nbsp;·&nbsp;
-      <a href="/api/docs" target="_blank" rel="noopener">API Docs</a>
-    </p>
+    <div class="footer-inner">
+      <div class="footer-brand">
+        <img src="logo.png" alt="PRism" class="footer-logo" />
+        <span>PRism — Deployment Risk Intelligence</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener">GitHub</a>
+        <a href="/docs.html">Docs</a>
+        <a href="/api/docs" target="_blank" rel="noopener">API</a>
+        <a href="/app.html#dashboard">Dashboard</a>
+      </div>
+    </div>
   </footer>
 
-  <script src="app.js"></script>
+  <script>
+    // Check auth state and adapt hero CTA (do NOT redirect away)
+    (async function () {
+      try {
+        const resp = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (resp.ok) {
+          const user = await resp.json();
+          // Show dashboard CTA, hide login CTA
+          document.getElementById('hero-cta-login').classList.add('hidden');
+          document.getElementById('hero-cta-dashboard').classList.remove('hidden');
+          document.getElementById('hero-hint').textContent = '';
+
+          // Render user badge in header
+          const hr = document.getElementById('header-right');
+          if (hr) {
+            const div = document.createElement('div');
+            div.className = 'user-badge';
+            const img = document.createElement('img');
+            img.src = user.avatar_url || '';
+            img.alt = '';
+            img.className = 'user-avatar';
+            const span = document.createElement('span');
+            span.className = 'user-name';
+            span.textContent = user.username || '';
+            div.appendChild(img);
+            div.appendChild(span);
+            hr.appendChild(div);
+          }
+        }
+      } catch (_) { /* stay anonymous */ }
+    })();
+  </script>
 </body>
 </html>

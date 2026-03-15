@@ -15,14 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from agents.shared.data_contract import AgentResult, VerdictReport
+from agents.shared.data_contract import AgentResult, RepoContext, VerdictReport
 
 logger = logging.getLogger("prism.orchestrator")
+
+_AGENT_TIMEOUT_SECONDS = int(os.getenv("PRISM_AGENT_TIMEOUT", "60"))
 
 
 def _parse_iso_timestamp(ts: str) -> datetime:
@@ -95,8 +98,16 @@ def _make_fallback(agent_name: str, error: Exception) -> AgentResult:
 
 # ── Core Orchestration ───────────────────────────────────────────────
 
-async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
+async def _import_and_run_agents(
+    payload: PRPayload,
+    repo_ctx: RepoContext | None = None,
+) -> list[AgentResult]:
     """Fire all four specialist agents concurrently.
+
+    Args:
+        payload:  Parsed PR event data.
+        repo_ctx: Per-registration context (PAT, Azure workspace config).
+                  When ``None`` agents fall back to environment variables.
 
     Returns exactly four ``AgentResult`` objects — one per agent.
     If an agent raises an exception or times out, a fallback payload is substituted.
@@ -140,20 +151,19 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     async def _run_history() -> AgentResult:
         async with trace_agent_call("History Agent") as span:
             from agents.history_agent import run as run_history
-            result = await run_history(changed_files=payload.changed_files)
-            _set_result_attrs(span, result)
-            return result
+            return await run_history(
+                changed_files=payload.changed_files,
+                repo_ctx=repo_ctx,
+            )
 
     async def _run_coverage() -> AgentResult:
         async with trace_agent_call("Coverage Agent") as span:
             from agents.coverage_agent import run as run_coverage
-            result = await run_coverage(
+            return await run_coverage(
                 pr_number=payload.pr_number,
                 repo=payload.repo,
-                skip_autofix=payload.skip_autofix,
+                gh_token=repo_ctx.gh_token if repo_ctx else None,
             )
-            _set_result_attrs(span, result)
-            return result
 
     agent_coros = [
         asyncio.wait_for(_run_diff(), timeout=_AGENT_TIMEOUT_SECONDS),
@@ -180,11 +190,16 @@ async def _import_and_run_agents(payload: PRPayload) -> list[AgentResult]:
     return validated
 
 
-async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
+async def orchestrate(
+    pr_payload: dict[str, Any] | PRPayload,
+    repo_ctx: RepoContext | None = None,
+) -> VerdictReport:
     """Full PRism pipeline: dispatch agents → collect → verdict.
 
     Args:
         pr_payload: Either a raw dict (from the webhook) or a ``PRPayload`` instance.
+        repo_ctx:   Per-registration context looked up from the platform DB.
+                    When ``None`` agents fall back to global env vars.
 
     Returns:
         A ``VerdictReport`` with the deployment decision.
@@ -202,23 +217,23 @@ async def orchestrate(pr_payload: dict[str, Any] | PRPayload) -> VerdictReport:
         len(payload.changed_files),
     )
 
-    # Lazy import of root-span helper — no-op fallback if Foundry unavailable
+    # Lazy import of tracing — no-op if Foundry module is unavailable
     try:
         from foundry.deployment_config import trace_orchestrate, trace_agent_call as _trace_verdict
     except ImportError:
-        from contextlib import asynccontextmanager
+        from contextlib import asynccontextmanager as _acm
 
-        @asynccontextmanager
+        @_acm
         async def trace_orchestrate(pr_number: int, repo: str):  # type: ignore[misc]
             yield None
 
-        @asynccontextmanager
+        @_acm
         async def _trace_verdict(name: str):  # type: ignore[misc]
             yield None
 
     async with trace_orchestrate(payload.pr_number, payload.repo) as root_span:
         # 1. Fire all agents concurrently
-        agent_results = await _import_and_run_agents(payload)
+        agent_results = await _import_and_run_agents(payload, repo_ctx=repo_ctx)
 
         # 2. Pass to Verdict Agent
         try:

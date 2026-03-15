@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import RedirectResponse
 
 from ..models import WorkspaceConnectRequest
@@ -28,12 +28,10 @@ _CONFIG_PATH = Path(os.getenv("PLATFORM_CONFIG_PATH", "/tmp/prism_workspace_conf
 
 
 @router.get("/auth-url")
-async def get_auth_url(state: Optional[str] = Query(None)) -> dict:
-    """Return the Azure AD OAuth2 authorization URL.
-
-    The frontend redirects the user to this URL so they can sign into their
-    Azure account and consent to the `Azure Management` scope.
-    """
+async def get_auth_url(
+    state: Optional[str] = Query(None),
+) -> dict:
+    """Return the Azure AD OAuth2 authorization URL."""
     client_id = os.getenv("AZURE_AD_CLIENT_ID")
     if not client_id:
         raise HTTPException(
@@ -56,9 +54,10 @@ async def azure_callback(
 ):
     """Handle Azure AD OAuth2 callback.
 
-    Exchanges the authorization code for an access token and redirects the
-    browser back to the frontend with the token in the URL fragment so the
-    wizard can store it in memory and advance to the workspace picker.
+    Exchanges the authorization code for an ARM access token and redirects
+    the browser back to the frontend with the token in the URL fragment.
+    The authorize URL used OIDC-only scopes; the token exchange requests
+    the ARM .default scope.
     """
     if error:
         raise HTTPException(
@@ -75,17 +74,18 @@ async def azure_callback(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     access_token = token_data.get("access_token", "")
-    # Pass token back to the SPA via query string (short-lived, not persisted)
+    tenant_id = token_data.get("tenant_id", "")
     return RedirectResponse(
-        url=f"/?azure_connected=true&azure_token={access_token}"
+        url=f"/app.html#azure_connected=true&azure_token={access_token}&azure_tenant_id={tenant_id}"
     )
 
 
 @router.get("/subscriptions")
 async def list_subscriptions(
-    token: str = Query(..., description="Azure ARM access token"),
+    authorization: str = Header(..., description="Bearer <Azure ARM token>"),
 ) -> dict:
     """List all Azure subscriptions accessible with the provided token."""
+    token = authorization.removeprefix("Bearer ").strip()
     try:
         subs = await azure_service.list_subscriptions(access_token=token)
     except Exception as exc:
@@ -97,9 +97,10 @@ async def list_subscriptions(
 @router.get("/workspaces/{subscription_id}")
 async def list_workspaces(
     subscription_id: str,
-    token: str = Query(..., description="Azure ARM access token"),
+    authorization: str = Header(..., description="Bearer <Azure ARM token>"),
 ) -> dict:
     """List Log Analytics workspaces in the given subscription."""
+    token = authorization.removeprefix("Bearer ").strip()
     try:
         workspaces = await azure_service.list_workspaces(
             access_token=token, subscription_id=subscription_id
@@ -143,6 +144,7 @@ async def connect_workspace(req: WorkspaceConnectRequest) -> dict:
             pass  # Non-fatal — user may already have the GUID
 
     config = {
+        "tenant_id": req.tenant_id,
         "subscription_id": req.subscription_id,
         "workspace_id": req.workspace_id,
         "workspace_name": req.workspace_name,

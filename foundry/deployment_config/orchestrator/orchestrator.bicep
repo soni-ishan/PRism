@@ -1,12 +1,8 @@
 /*
-  PRism Azure Infrastructure - Step 2: Container App Deployment
-  =============================================================
-  Deploys the Container App (Orchestrator) AFTER:
-  1. Step 1 (infra.bicep) has provisioned all foundation resources
-  2. Docker image has been built and pushed to ACR
-
-  This template references existing resources by name and deploys
-  only the Container App into the pre-created environment.
+  PRism Orchestrator — Container App
+  ====================================
+  Deployed AFTER infra.bicep + Docker push.
+  References existing shared resources by naming convention.
 */
 
 targetScope = 'resourceGroup'
@@ -15,40 +11,41 @@ targetScope = 'resourceGroup'
 // PARAMETERS
 // ════════════════════════════════════════════════════════════════
 
-@description('Project name prefix for all resources')
-@minLength(3)
-@maxLength(10)
+@description('Project name prefix (must match infra)')
 param projectName string = 'prism'
 
-@description('Environment name (dev, staging, prod)')
-@allowed([
-  'dev'
-  'staging'
-  'prod'
-])
-param environment string = 'prod'
+@description('Environment (must match infra)')
+@allowed([ 'dev', 'staging', 'prod' ])
+param environment string = 'dev'
 
-@description('Azure region for resource deployment')
+@description('Azure region')
 param location string = resourceGroup().location
 
-@description('GitHub Personal Access Token')
-@secure()
-param githubToken string
+@description('Container image tag')
+param imageTag string = 'latest'
 
 @description('GitHub Webhook Secret')
 @secure()
-param githubWebhookSecret string
-
-@description('GitHub repository owner/organization')
-param githubRepoOwner string
-
-@description('GitHub repository name')
-param githubRepoName string
+param githubWebhookSecret string = ''
 
 @description('Azure OpenAI model deployment name')
 param openAiModelDeployment string = 'gpt-4o'
 
-@description('Tags to apply to all resources')
+@description('PostgreSQL admin login')
+param pgAdminLogin string = 'prismadmin'
+
+@description('PostgreSQL admin password')
+@secure()
+param pgAdminPassword string = ''
+
+@description('Encryption key for decrypting PATs from platform DB')
+@secure()
+param encryptionKey string = ''
+
+@description('Agent timeout in seconds (0 = default 60s)')
+param agentTimeoutSeconds int = 60
+
+@description('Tags')
 param tags object = {
   project: 'PRism'
   environment: environment
@@ -62,33 +59,27 @@ param tags object = {
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var namingPrefix = '${projectName}-${environment}'
 
-// Resource names (must match infra.bicep)
 var containerRegistryName = '${projectName}acr${uniqueSuffix}'
-var openAiName = '${namingPrefix}-openai'
+var containerAppEnvName = '${namingPrefix}-env'
+var orchestratorIdentityName = '${namingPrefix}-orchestrator-identity'
+var openAiName = '${namingPrefix}-openai-${uniqueSuffix}'
 var searchName = '${namingPrefix}-search-${uniqueSuffix}'
-var contentSafetyName = '${namingPrefix}-contentsafety'
+var contentSafetyName = '${namingPrefix}-cs-${uniqueSuffix}'
 var appInsightsName = '${namingPrefix}-appins'
 var keyVaultName = '${projectName}-kv-${uniqueSuffix}'
-var containerAppEnvName = '${namingPrefix}-env'
 var containerAppName = '${namingPrefix}-orchestrator'
-var orchestratorIdentityName = '${namingPrefix}-orchestrator-identity'
+var pgServerName = '${namingPrefix}-pg'
+var pgDatabaseName = 'prism_platform'
 
-// Optional webhook secret — only included when a non-empty value is provided
 var webhookSecretArray = empty(githubWebhookSecret) ? [] : [
-  {
-    name: 'github-webhook-secret'
-    value: githubWebhookSecret
-  }
+  { name: 'github-webhook-secret', value: githubWebhookSecret }
 ]
 var webhookEnvArray = empty(githubWebhookSecret) ? [] : [
-  {
-    name: 'GITHUB_WEBHOOK_SECRET'
-    secretRef: 'github-webhook-secret'
-  }
+  { name: 'GITHUB_WEBHOOK_SECRET', secretRef: 'github-webhook-secret' }
 ]
 
 // ════════════════════════════════════════════════════════════════
-// EXISTING RESOURCES (created by infra.bicep in Step 1)
+// EXISTING RESOURCES (created by infra.bicep)
 // ════════════════════════════════════════════════════════════════
 
 resource orchestratorIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
@@ -123,8 +114,15 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
+resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' existing = {
+  name: pgServerName
+}
+
+// Construct the database URL for platform registration lookups
+var databaseUrl = empty(pgAdminPassword) ? '' : 'postgresql+asyncpg://${pgAdminLogin}:${uriComponent(pgAdminPassword)}@${pgServer.properties.fullyQualifiedDomainName}:5432/${pgDatabaseName}'
+
 // ════════════════════════════════════════════════════════════════
-// CONTAINER APP (Orchestrator)
+// CONTAINER APP
 // ════════════════════════════════════════════════════════════════
 
 resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
@@ -133,9 +131,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   tags: tags
   identity: {
     type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${orchestratorIdentity.id}': {}
-    }
+    userAssignedIdentities: { '${orchestratorIdentity.id}': {} }
   }
   properties: {
     managedEnvironmentId: containerAppEnv.id
@@ -155,27 +151,13 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       ]
       secrets: concat(
         [
-          {
-            name: 'appinsights-connection-string'
-            value: appInsights.properties.ConnectionString
-          }
-          {
-            name: 'github-token'
-            value: githubToken
-          }
-          {
-            name: 'openai-api-key'
-            value: openAi.listKeys().key1
-          }
-          {
-            name: 'content-safety-key'
-            value: contentSafety.listKeys().key1
-          }
-          {
-            name: 'search-admin-key'
-            value: search.listAdminKeys().primaryKey
-          }
+          { name: 'appinsights-connection-string', value: appInsights.properties.ConnectionString }
+          { name: 'openai-api-key', value: openAi.listKeys().key1 }
+          { name: 'content-safety-key', value: contentSafety.listKeys().key1 }
+          { name: 'search-admin-key', value: search.listAdminKeys().primaryKey }
         ],
+        empty(databaseUrl) ? [] : [ { name: 'database-url', value: databaseUrl } ],
+        empty(encryptionKey) ? [] : [ { name: 'encryption-key', value: encryptionKey } ],
         webhookSecretArray
       )
     }
@@ -183,80 +165,50 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
       containers: [
         {
           name: 'orchestrator'
-          image: '${containerRegistry.properties.loginServer}/prism-orchestrator:latest'
-          resources: {
-            cpu: json('0.5')
-            memory: '1Gi'
-          }
+          image: '${containerRegistry.properties.loginServer}/prism-orchestrator:${imageTag}'
+          resources: { cpu: json('0.5'), memory: '1Gi' }
           env: concat([
+            { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.properties.endpoint }
+            { name: 'AZURE_OPENAI_DEPLOYMENT', value: openAiModelDeployment }
+            { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-api-key' }
+            { name: 'AZURE_SEARCH_ENDPOINT', value: 'https://${search.name}.search.windows.net' }
+            { name: 'AZURE_SEARCH_KEY', secretRef: 'search-admin-key' }
+            { name: 'AZURE_CONTENT_SAFETY_ENDPOINT', value: contentSafety.properties.endpoint }
+            { name: 'AZURE_CONTENT_SAFETY_KEY', secretRef: 'content-safety-key' }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
+            { name: 'KEY_VAULT_URL', value: keyVault.properties.vaultUri }
+            { name: 'AZURE_CLIENT_ID', value: orchestratorIdentity.properties.clientId }
+            { name: 'PRISM_AGENT_TIMEOUT', value: string(agentTimeoutSeconds) }
+          ],
+          empty(databaseUrl) ? [] : [ { name: 'DATABASE_URL', secretRef: 'database-url' } ],
+          empty(encryptionKey) ? [] : [ { name: 'ENCRYPTION_KEY', secretRef: 'encryption-key' } ],
+          webhookEnvArray)
+          probes: [
             {
-              name: 'AZURE_OPENAI_ENDPOINT'
-              value: openAi.properties.endpoint
+              type: 'Liveness'
+              httpGet: {
+                path: '/health'
+                port: 8000
+              }
+              periodSeconds: 30
+              failureThreshold: 3
             }
             {
-              name: 'AZURE_OPENAI_DEPLOYMENT'
-              value: openAiModelDeployment
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8000
+              }
+              periodSeconds: 10
+              failureThreshold: 3
             }
-            {
-              name: 'AZURE_OPENAI_API_KEY'
-              secretRef: 'openai-api-key'
-            }
-            {
-              name: 'AZURE_SEARCH_ENDPOINT'
-              value: 'https://${search.name}.search.windows.net'
-            }
-            {
-              name: 'AZURE_SEARCH_KEY'
-              secretRef: 'search-admin-key'
-            }
-            {
-              name: 'AZURE_CONTENT_SAFETY_ENDPOINT'
-              value: contentSafety.properties.endpoint
-            }
-            {
-              name: 'AZURE_CONTENT_SAFETY_KEY'
-              secretRef: 'content-safety-key'
-            }
-            {
-              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-              secretRef: 'appinsights-connection-string'
-            }
-            {
-              name: 'GH_PAT'
-              secretRef: 'github-token'
-            }
-            {
-              name: 'KEY_VAULT_URL'
-              value: keyVault.properties.vaultUri
-            }
-            {
-              name: 'AZURE_CLIENT_ID'
-              value: orchestratorIdentity.properties.clientId
-            }
-            {
-              name: 'GITHUB_REPO_OWNER'
-              value: githubRepoOwner
-            }
-            {
-              name: 'GITHUB_REPO_NAME'
-              value: githubRepoName
-            }
-          ], webhookEnvArray)
+          ]
         }
       ]
       scale: {
         minReplicas: 1
         maxReplicas: 10
-        rules: [
-          {
-            name: 'http-scale'
-            http: {
-              metadata: {
-                concurrentRequests: '10'
-              }
-            }
-          }
-        ]
+        rules: [ { name: 'http-scaling', http: { metadata: { concurrentRequests: '10' } } } ]
       }
     }
   }
@@ -267,4 +219,5 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
 // ════════════════════════════════════════════════════════════════
 
 output containerAppName string = containerApp.name
+output orchestratorFqdn string = containerApp.properties.configuration.ingress.fqdn
 output orchestratorUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'

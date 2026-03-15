@@ -21,7 +21,7 @@ from agents.orchestrator import (
     _make_fallback,
     orchestrate,
 )
-from agents.shared.data_contract import AgentResult, VerdictReport
+from agents.shared.data_contract import AgentResult, RepoContext, VerdictReport
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ class TestOrchestrationAllSucceed:
             _make_result("Timing Agent"),
         ]
 
-        async def fake_agents(payload):
+        async def fake_agents(payload, repo_ctx=None):
             return results
 
         mock_agents.side_effect = fake_agents
@@ -149,7 +149,7 @@ class TestOrchestrationPartialFailure:
             _make_result("Timing Agent"),
         ]
 
-        async def fake_agents(payload):
+        async def fake_agents(payload, repo_ctx=None):
             return results
 
         mock_agents.side_effect = fake_agents
@@ -182,7 +182,7 @@ class TestOrchestrationTotalFailure:
             _make_fallback("Timing Agent", RuntimeError("err")),
         ]
 
-        async def fake_agents(payload):
+        async def fake_agents(payload, repo_ctx=None):
             return results
 
         mock_agents.side_effect = fake_agents
@@ -219,7 +219,7 @@ class TestOrchestrationDictInput:
             _make_result("Timing Agent"),
         ]
 
-        async def fake_agents(payload):
+        async def fake_agents(payload, repo_ctx=None):
             return results
 
         mock_agents.side_effect = fake_agents

@@ -1,20 +1,22 @@
 /*
-  PRism Azure Infrastructure - Step 1: Foundation Resources
-  =========================================================
-  Deploys all foundational Azure resources EXCEPT the Container App itself.
-  Run this first, then build/push Docker image, then deploy app.bicep.
+  PRism — Unified Foundation Infrastructure
+  ==========================================
+  Single resource group for EVERYTHING:
+    - Managed Identities (orchestrator + platform)
+    - Key Vault + Secrets
+    - Log Analytics & Application Insights
+    - Azure OpenAI (GPT-4o)
+    - Azure AI Search
+    - Azure Content Safety
+    - Container Registry (shared by both apps)
+    - Container Apps Environment (shared by both apps)
+    - PostgreSQL Flexible Server (for platform)
+    - Storage Account + Azure Functions (conditional)
 
-  Resources deployed:
-  - Managed Identities
-  - Key Vault + Secrets
-  - Log Analytics & Application Insights
-  - Azure OpenAI (GPT-4o)
-  - Azure AI Search
-  - Azure Content Safety
-  - Container Registry
-  - Container Apps Environment
-  - Storage Account (conditional)
-  - Azure Functions (conditional)
+  Deploy order:
+    1. infra.bicep          (this file)   → deploy-infra.ps1
+    2. orchestrator.bicep                 → deploy-orchestrator.ps1
+    3. platform-app.bicep                 → deploy-platform.ps1
 */
 
 targetScope = 'resourceGroup'
@@ -29,25 +31,19 @@ targetScope = 'resourceGroup'
 param projectName string = 'prism'
 
 @description('Environment name (dev, staging, prod)')
-@allowed([
-  'dev'
-  'staging'
-  'prod'
-])
-param environment string = 'prod'
+@allowed([ 'dev', 'staging', 'prod' ])
+param environment string = 'dev'
 
 @description('Azure region for resource deployment')
 param location string = resourceGroup().location
 
-@description('GitHub Personal Access Token (stored in Key Vault)')
-@secure()
-param githubToken string
+// — GitHub secrets —
 
 @description('GitHub Webhook Secret (stored in Key Vault)')
 @secure()
-param githubWebhookSecret string
+param githubWebhookSecret string = ''
 
-
+// — OpenAI config —
 
 @description('Azure OpenAI model deployment name')
 param openAiModelDeployment string = 'gpt-4o'
@@ -58,7 +54,28 @@ param openAiModelVersion string = '2024-11-20'
 @description('Azure OpenAI model capacity (TPM in thousands)')
 param openAiModelCapacity int = 30
 
-@description('Deploy Azure Functions MCP server (requires Dynamic VM quota)')
+// — PostgreSQL config (for platform) —
+
+@description('PostgreSQL administrator login')
+param pgAdminLogin string = 'prismadmin'
+
+@description('PostgreSQL administrator password')
+@secure()
+param pgAdminPassword string
+
+@description('PostgreSQL SKU tier')
+@allowed([ 'Burstable', 'GeneralPurpose', 'MemoryOptimized' ])
+param pgSkuTier string = 'Burstable'
+
+@description('PostgreSQL SKU name')
+param pgSkuName string = 'Standard_B1ms'
+
+@description('PostgreSQL storage size in GB')
+param pgStorageSizeGB int = 32
+
+// — Optional features —
+
+@description('Deploy Azure Functions MCP server')
 param deployFunctionApp bool = false
 
 @description('Tags to apply to all resources')
@@ -75,22 +92,31 @@ param tags object = {
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var namingPrefix = '${projectName}-${environment}'
 
-// Resource names
-var keyVaultName = '${projectName}-kv-${uniqueSuffix}'
+// Shared resources
 var containerRegistryName = '${projectName}acr${uniqueSuffix}'
 var logAnalyticsName = '${namingPrefix}-logs'
 var appInsightsName = '${namingPrefix}-appins'
+var containerAppEnvName = '${namingPrefix}-env'
+var keyVaultName = '${projectName}-kv-${uniqueSuffix}'
+
+// AI resources
 var openAiName = '${namingPrefix}-openai-${uniqueSuffix}'
 var searchName = '${namingPrefix}-search-${uniqueSuffix}'
 var contentSafetyName = '${namingPrefix}-cs-${uniqueSuffix}'
+
+// Identities
+var orchestratorIdentityName = '${namingPrefix}-orchestrator-identity'
+var platformIdentityName = '${namingPrefix}-platform-identity'
+var functionIdentityName = '${namingPrefix}-function-identity'
+
+// Functions
 var storageAccountName = take('${projectName}${environment}st${uniqueSuffix}', 24)
 var functionAppName = '${namingPrefix}-func'
 var hostingPlanName = '${namingPrefix}-plan'
-var containerAppEnvName = '${namingPrefix}-env'
 
-// Managed Identity names
-var orchestratorIdentityName = '${namingPrefix}-orchestrator-identity'
-var functionIdentityName = '${namingPrefix}-function-identity'
+// PostgreSQL
+var pgServerName = '${namingPrefix}-pg'
+var pgDatabaseName = 'prism_platform'
 
 // ════════════════════════════════════════════════════════════════
 // MANAGED IDENTITIES
@@ -98,6 +124,12 @@ var functionIdentityName = '${namingPrefix}-function-identity'
 
 resource orchestratorIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: orchestratorIdentityName
+  location: location
+  tags: tags
+}
+
+resource platformIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: platformIdentityName
   location: location
   tags: tags
 }
@@ -117,57 +149,37 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   location: location
   tags: tags
   properties: {
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
+    sku: { family: 'A', name: 'standard' }
     tenantId: subscription().tenantId
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
-    networkAcls: {
-      defaultAction: 'Allow'
-      bypass: 'AzureServices'
-    }
+    networkAcls: { defaultAction: 'Allow', bypass: 'AzureServices' }
   }
 }
 
-// Store GitHub token in Key Vault
-resource githubTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  name: 'github-token'
-  parent: keyVault
-  properties: {
-    value: githubToken
-  }
-}
-
-// Store GitHub webhook secret in Key Vault
-resource webhookSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource webhookSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(githubWebhookSecret)) {
   name: 'github-webhook-secret'
   parent: keyVault
-  properties: {
-    value: githubWebhookSecret
-  }
+  properties: { value: githubWebhookSecret }
 }
 
-// Grant orchestrator identity access to Key Vault
 resource orchestratorKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(keyVault.id, orchestratorIdentity.id, 'KeyVaultSecretsUser')
   scope: keyVault
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
     principalId: orchestratorIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// Grant function identity access to Key Vault
 resource functionKeyVaultAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(keyVault.id, functionIdentity!.id, 'KeyVaultSecretsUser')
   scope: keyVault
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
     principalId: functionIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
   }
@@ -182,13 +194,9 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   location: location
   tags: tags
   properties: {
-    sku: {
-      name: 'PerGB2018'
-    }
+    sku: { name: 'PerGB2018' }
     retentionInDays: 30
-    features: {
-      enableLogAccessUsingOnlyResourcePermissions: true
-    }
+    features: { enableLogAccessUsingOnlyResourcePermissions: true }
   }
 }
 
@@ -213,53 +221,39 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   location: location
   tags: tags
   kind: 'OpenAI'
-  sku: {
-    name: 'S0'
-  }
+  sku: { name: 'S0' }
   properties: {
     customSubDomainName: openAiName
     publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      defaultAction: 'Allow'
-    }
+    networkAcls: { defaultAction: 'Allow' }
   }
 }
 
-// Deploy GPT-4o model
 resource openAiDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-05-01' = {
   name: openAiModelDeployment
   parent: openAi
-  sku: {
-    name: 'Standard'
-    capacity: openAiModelCapacity
-  }
+  sku: { name: 'Standard', capacity: openAiModelCapacity }
   properties: {
-    model: {
-      format: 'OpenAI'
-      name: 'gpt-4o'
-      version: openAiModelVersion
-    }
+    model: { format: 'OpenAI', name: 'gpt-4o', version: openAiModelVersion }
     raiPolicyName: 'Microsoft.Default'
   }
 }
 
-// Grant orchestrator identity access to OpenAI
 resource orchestratorOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(openAi.id, orchestratorIdentity.id, 'CognitiveServicesOpenAIUser')
   scope: openAi
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd') // Cognitive Services OpenAI User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
     principalId: orchestratorIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// Grant function identity access to OpenAI
 resource functionOpenAiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(openAi.id, functionIdentity!.id, 'CognitiveServicesOpenAIUser')
   scope: openAi
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd') // Cognitive Services OpenAI User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
     principalId: functionIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
   }
@@ -273,9 +267,7 @@ resource search 'Microsoft.Search/searchServices@2023-11-01' = {
   name: searchName
   location: location
   tags: tags
-  sku: {
-    name: 'basic'
-  }
+  sku: { name: 'basic' }
   properties: {
     replicaCount: 1
     partitionCount: 1
@@ -285,23 +277,21 @@ resource search 'Microsoft.Search/searchServices@2023-11-01' = {
   }
 }
 
-// Grant orchestrator identity access to AI Search
 resource orchestratorSearchAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(search.id, orchestratorIdentity.id, 'SearchIndexDataContributor')
   scope: search
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7') // Search Index Data Contributor
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7')
     principalId: orchestratorIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// Grant function identity access to AI Search
 resource functionSearchAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployFunctionApp) {
   name: guid(search.id, functionIdentity!.id, 'SearchIndexDataContributor')
   scope: search
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7') // Search Index Data Contributor
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7')
     principalId: functionIdentity!.properties.principalId
     principalType: 'ServicePrincipal'
   }
@@ -316,174 +306,57 @@ resource contentSafety 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   location: location
   tags: tags
   kind: 'ContentSafety'
-  sku: {
-    name: 'S0'
-  }
+  sku: { name: 'S0' }
   properties: {
     customSubDomainName: contentSafetyName
     publicNetworkAccess: 'Enabled'
   }
 }
 
-// Grant orchestrator identity access to Content Safety
 resource orchestratorContentSafetyAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(contentSafety.id, orchestratorIdentity.id, 'CognitiveServicesUser')
   scope: contentSafety
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908') // Cognitive Services User
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')
     principalId: orchestratorIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
 // ════════════════════════════════════════════════════════════════
-// CONTAINER REGISTRY
+// CONTAINER REGISTRY (shared — both apps push here)
 // ════════════════════════════════════════════════════════════════
 
 resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: containerRegistryName
   location: location
   tags: tags
-  sku: {
-    name: 'Basic'
-  }
-  properties: {
-    adminUserEnabled: true
-    publicNetworkAccess: 'Enabled'
-  }
+  sku: { name: 'Basic' }
+  properties: { adminUserEnabled: true, publicNetworkAccess: 'Enabled' }
 }
 
-// Grant orchestrator identity pull access to ACR
 resource orchestratorAcrAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(containerRegistry.id, orchestratorIdentity.id, 'AcrPull')
   scope: containerRegistry
   properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d') // AcrPull
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
     principalId: orchestratorIdentity.properties.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// STORAGE ACCOUNT (for Azure Functions)
-// ════════════════════════════════════════════════════════════════
-
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = if (deployFunctionApp) {
-  name: storageAccountName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Standard_LRS'
-  }
-  kind: 'StorageV2'
+resource platformAcrAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(containerRegistry.id, platformIdentity.id, 'AcrPull')
+  scope: containerRegistry
   properties: {
-    supportsHttpsTrafficOnly: true
-    minimumTlsVersion: 'TLS1_2'
-    allowBlobPublicAccess: false
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+    principalId: platformIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
 // ════════════════════════════════════════════════════════════════
-// AZURE FUNCTIONS (Azure MCP Server)
-// ════════════════════════════════════════════════════════════════
-
-resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (deployFunctionApp) {
-  name: hostingPlanName
-  location: location
-  tags: tags
-  sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
-  }
-  kind: 'functionapp'
-  properties: {
-    reserved: true // Required for Linux
-  }
-}
-
-resource functionApp 'Microsoft.Web/sites@2023-01-01' = if (deployFunctionApp) {
-  name: functionAppName
-  location: location
-  tags: tags
-  kind: 'functionapp,linux'
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${functionIdentity!.id}': {}
-    }
-  }
-  properties: {
-    serverFarmId: hostingPlan!.id
-    reserved: true
-    siteConfig: {
-      linuxFxVersion: 'PYTHON|3.11'
-      appSettings: [
-        {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount!.name};AccountKey=${storageAccount!.listKeys().keys[0].value};EndpointSuffix=core.windows.net'
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'python'
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'AZURE_OPENAI_ENDPOINT'
-          value: openAi.properties.endpoint
-        }
-        {
-          name: 'AZURE_OPENAI_DEPLOYMENT'
-          value: openAiModelDeployment
-        }
-        {
-          name: 'AZURE_OPENAI_API_KEY'
-          value: openAi.listKeys().key1
-        }
-        {
-          name: 'AZURE_SEARCH_ENDPOINT'
-          value: 'https://${search.name}.search.windows.net'
-        }
-        {
-          name: 'AZURE_SEARCH_KEY'
-          value: search.listAdminKeys().primaryKey
-        }
-        {
-          name: 'AZURE_CONTENT_SAFETY_ENDPOINT'
-          value: contentSafety.properties.endpoint
-        }
-        {
-          name: 'AZURE_CONTENT_SAFETY_KEY'
-          value: contentSafety.listKeys().key1
-        }
-        {
-          name: 'AZURE_LOG_WORKSPACE_ID'
-          value: logAnalytics.properties.customerId
-        }
-        {
-          name: 'KEY_VAULT_URL'
-          value: keyVault.properties.vaultUri
-        }
-        {
-          name: 'AZURE_CLIENT_ID'
-          value: functionIdentity!.properties.clientId
-        }
-      ]
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-    }
-    httpsOnly: true
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-// CONTAINER APPS ENVIRONMENT
+// CONTAINER APPS ENVIRONMENT (shared — both apps run here)
 // ════════════════════════════════════════════════════════════════
 
 resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
@@ -502,52 +375,148 @@ resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
 }
 
 // ════════════════════════════════════════════════════════════════
-// OUTPUTS (consumed by Step 2: app.bicep and deploy scripts)
+// POSTGRESQL FLEXIBLE SERVER (for platform)
 // ════════════════════════════════════════════════════════════════
 
+resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+  name: pgServerName
+  location: location
+  tags: tags
+  sku: { name: pgSkuName, tier: pgSkuTier }
+  properties: {
+    version: '16'
+    administratorLogin: pgAdminLogin
+    administratorLoginPassword: pgAdminPassword
+    storage: { storageSizeGB: pgStorageSizeGB }
+    backup: { backupRetentionDays: 7, geoRedundantBackup: 'Disabled' }
+    highAvailability: { mode: 'Disabled' }
+    network: { publicNetworkAccess: 'Enabled' }
+  }
+}
+
+resource pgFirewallAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+  name: 'AllowAzureServices'
+  parent: pgServer
+  properties: { startIpAddress: '0.0.0.0', endIpAddress: '0.0.0.0' }
+}
+
+// Allow all Azure Container Apps outbound IPs (Container Apps use dynamic IPs)
+resource pgFirewallAllowAll 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+  name: 'AllowContainerApps'
+  parent: pgServer
+  properties: { startIpAddress: '0.0.0.0', endIpAddress: '255.255.255.255' }
+}
+
+resource pgDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+  name: pgDatabaseName
+  parent: pgServer
+  properties: { charset: 'UTF8', collation: 'en_US.utf8' }
+}
+
+// ════════════════════════════════════════════════════════════════
+// STORAGE ACCOUNT + AZURE FUNCTIONS (conditional)
+// ════════════════════════════════════════════════════════════════
+
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = if (deployFunctionApp) {
+  name: storageAccountName
+  location: location
+  tags: tags
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: { supportsHttpsTrafficOnly: true, minimumTlsVersion: 'TLS1_2', allowBlobPublicAccess: false }
+}
+
+resource hostingPlan 'Microsoft.Web/serverfarms@2023-01-01' = if (deployFunctionApp) {
+  name: hostingPlanName
+  location: location
+  tags: tags
+  sku: { name: 'Y1', tier: 'Dynamic' }
+  kind: 'functionapp'
+  properties: { reserved: true }
+}
+
+resource functionApp 'Microsoft.Web/sites@2023-01-01' = if (deployFunctionApp) {
+  name: functionAppName
+  location: location
+  tags: tags
+  kind: 'functionapp,linux'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${functionIdentity!.id}': {} }
+  }
+  properties: {
+    serverFarmId: hostingPlan!.id
+    reserved: true
+    siteConfig: {
+      linuxFxVersion: 'PYTHON|3.11'
+      appSettings: [
+        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount!.name};AccountKey=${storageAccount!.listKeys().keys[0].value};EndpointSuffix=core.windows.net' }
+        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
+        { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'python' }
+        { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+        { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.properties.endpoint }
+        { name: 'AZURE_OPENAI_DEPLOYMENT', value: openAiModelDeployment }
+        { name: 'AZURE_OPENAI_API_KEY', value: openAi.listKeys().key1 }
+        { name: 'AZURE_SEARCH_ENDPOINT', value: 'https://${search.name}.search.windows.net' }
+        { name: 'AZURE_SEARCH_KEY', value: search.listAdminKeys().primaryKey }
+        { name: 'AZURE_CONTENT_SAFETY_ENDPOINT', value: contentSafety.properties.endpoint }
+        { name: 'AZURE_CONTENT_SAFETY_KEY', value: contentSafety.listKeys().key1 }
+        { name: 'AZURE_LOG_WORKSPACE_ID', value: logAnalytics.properties.customerId }
+        { name: 'KEY_VAULT_URL', value: keyVault.properties.vaultUri }
+        { name: 'AZURE_CLIENT_ID', value: functionIdentity!.properties.clientId }
+      ]
+      ftpsState: 'Disabled'
+      minTlsVersion: '1.2'
+    }
+    httpsOnly: true
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// OUTPUTS
+// ════════════════════════════════════════════════════════════════
+
+// — Shared —
 output resourceGroupName string = resourceGroup().name
 output location string = location
-
-// Container Registry
 output containerRegistryName string = containerRegistry.name
 output containerRegistryLoginServer string = containerRegistry.properties.loginServer
-
-// Container Apps Environment
 output containerAppEnvId string = containerAppEnv.id
 output containerAppEnvName string = containerAppEnv.name
 
-// Azure OpenAI
+// — Orchestrator identity —
+output orchestratorIdentityId string = orchestratorIdentity.id
+output orchestratorIdentityClientId string = orchestratorIdentity.properties.clientId
+
+// — Platform identity —
+output platformIdentityId string = platformIdentity.id
+output platformIdentityClientId string = platformIdentity.properties.clientId
+
+// — AI services —
 output openAiEndpoint string = openAi.properties.endpoint
 output openAiDeploymentName string = openAiModelDeployment
-
-// AI Search
 output aiSearchEndpoint string = 'https://${search.name}.search.windows.net'
 output aiSearchName string = search.name
-
-// Content Safety
 output contentSafetyEndpoint string = contentSafety.properties.endpoint
 
-// Application Insights
+// — Observability —
 output appInsightsName string = appInsights.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output appInsightsInstrumentationKey string = appInsights.properties.InstrumentationKey
-
-// Log Analytics
 output logAnalyticsWorkspaceId string = logAnalytics.properties.customerId
 output logAnalyticsName string = logAnalytics.name
 
-// Key Vault
+// — Key Vault —
 output keyVaultName string = keyVault.name
 output keyVaultUrl string = keyVault.properties.vaultUri
 
-// Managed Identities
-output orchestratorIdentityId string = orchestratorIdentity.id
-output orchestratorIdentityClientId string = orchestratorIdentity.properties.clientId
+// — PostgreSQL —
+output pgServerName string = pgServer.name
+output pgServerFqdn string = pgServer.properties.fullyQualifiedDomainName
+output pgDatabaseName string = pgDatabase.name
+
+// — Functions (conditional) —
 output functionIdentityClientId string = deployFunctionApp ? functionIdentity!.properties.clientId : 'not-deployed'
-
-// Storage
 output storageAccountName string = deployFunctionApp ? storageAccount!.name : 'not-deployed'
-
-// Function App
 output functionAppName string = deployFunctionApp ? functionApp!.name : 'not-deployed'
 output functionAppUrl string = deployFunctionApp ? 'https://${functionApp!.properties.defaultHostName}' : 'not-deployed'

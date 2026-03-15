@@ -7,18 +7,23 @@ Has zero imports from agents/, mcp_servers/, or foundry/.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
 import httpx
 
 ARM_BASE = "https://management.azure.com"
-GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-ARM_SCOPE = "https://management.azure.com/user_impersonation"
+ARM_SCOPE = "https://management.azure.com/.default"
 
 
 def _get_msal_app(tenant_id: Optional[str] = None):
-    """Build a ConfidentialClientApplication for the platform's Azure AD app."""
+    """Build a ConfidentialClientApplication for the platform's Azure AD app.
+
+    Requires AZURE_AD_TENANT_ID to be set to the specific tenant where the
+    Azure subscription lives.  Using 'common' or 'organizations' will block
+    personal Microsoft accounts from obtaining ARM tokens.
+    """
     try:
         import msal
     except ImportError as exc:
@@ -26,7 +31,12 @@ def _get_msal_app(tenant_id: Optional[str] = None):
 
     client_id = os.environ["AZURE_AD_CLIENT_ID"]
     client_secret = os.environ["AZURE_AD_CLIENT_SECRET"]
-    tid = tenant_id or os.getenv("AZURE_AD_TENANT_ID", "common")
+    tid = tenant_id or os.environ.get("AZURE_AD_TENANT_ID", "")
+    if not tid:
+        raise RuntimeError(
+            "AZURE_AD_TENANT_ID must be set to your Azure AD tenant ID "
+            "(not 'common' or 'organizations') for personal account support."
+        )
     authority = f"https://login.microsoftonline.com/{tid}"
 
     return msal.ConfidentialClientApplication(
@@ -39,15 +49,17 @@ def _get_msal_app(tenant_id: Optional[str] = None):
 def get_auth_url(redirect_uri: Optional[str] = None, state: Optional[str] = None) -> str:
     """Return the Azure AD OAuth2 authorization URL.
 
-    The user is redirected here to sign in and consent to the ARM scope.
+    Requests ARM scope so that both org and personal accounts with Azure
+    subscriptions can authenticate and access Azure resources.
     """
     app = _get_msal_app()
     redirect = redirect_uri or os.getenv(
         "AZURE_AD_REDIRECT_URI", "http://localhost:8080/api/setup/azure/callback"
     )
     params: Dict[str, Any] = {
-        "scopes": [ARM_SCOPE, "offline_access"],
+        "scopes": [ARM_SCOPE],
         "redirect_uri": redirect,
+        "prompt": "select_account",
     }
     if state:
         params["state"] = state
@@ -59,21 +71,23 @@ async def exchange_code_for_token(
     code: str,
     redirect_uri: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Exchange an authorization code for an access token using MSAL.
-
-    Returns the full MSAL token response dict (access_token, refresh_token, etc.).
-    """
+    """Exchange an authorization code for an ARM access token."""
     app = _get_msal_app()
     redirect = redirect_uri or os.getenv(
         "AZURE_AD_REDIRECT_URI", "http://localhost:8080/api/setup/azure/callback"
     )
-    result = app.acquire_token_by_authorization_code(
+    result = await asyncio.to_thread(
+        app.acquire_token_by_authorization_code,
         code=code,
         scopes=[ARM_SCOPE],
         redirect_uri=redirect,
     )
     if "error" in result:
         raise ValueError(f"MSAL token exchange failed: {result.get('error_description', result['error'])}")
+
+    claims = result.get("id_token_claims", {})
+    result["tenant_id"] = claims.get("tid", "")
+
     return result
 
 

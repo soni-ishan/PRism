@@ -1,8 +1,7 @@
 """GitHub setup router for the PRism platform.
 
 Endpoints:
-  GET  /api/setup/github/install-url        — GitHub App installation URL
-  GET  /api/setup/github/callback           — OAuth/App callback handler
+  POST /api/setup/github/validate-token     — Validate a GitHub PAT
   POST /api/setup/github/install-workflow   — Commit prism-gate.yml to a repo
   GET  /api/setup/github/status/{owner}/{repo} — Check workflow & secrets status
 """
@@ -10,122 +9,104 @@ Endpoints:
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import RedirectResponse
+import httpx
+from fastapi import APIRouter, HTTPException, Header, Request
+from pydantic import BaseModel
 
 from ..models import WorkflowInstallRequest
-from ..services import github_service
+from ..services import github_service, auth_service
+from ..services.db import RegistrationRow, UserRow, get_session, async_session, _uuid, _now
+from .auth import COOKIE_NAME
+
+# GitHub owner/repo names: alphanumeric, hyphens, dots, underscores
+_SAFE_NAME = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+
+def _validate_name(value: str, label: str) -> str:
+    """Reject owner/repo names that contain path-traversal or special chars."""
+    if not value or not _SAFE_NAME.match(value):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid {label}: must be alphanumeric, hyphens, dots, or underscores.",
+        )
+    return value
 
 router = APIRouter(prefix="/api/setup/github", tags=["github-setup"])
 
-GITHUB_APP_INSTALL_BASE = "https://github.com/apps"
+
+class ValidateTokenRequest(BaseModel):
+    token: str
 
 
-@router.get("/install-url")
-async def get_install_url() -> dict:
-    """Return the GitHub App installation URL.
+@router.post("/validate-token")
+async def validate_token(req: ValidateTokenRequest) -> dict:
+    """Validate a GitHub Personal Access Token.
 
-    Users are redirected here to install the PRism GitHub App on their
-    repositories. If a GitHub App is configured (GITHUB_APP_ID), returns the
-    App install URL. Otherwise falls back to the OAuth authorization flow using
-    GITHUB_CLIENT_ID.
+    Checks that the PAT is valid by calling /user and returns the
+    authenticated GitHub username and token scopes.
     """
-    app_id = os.getenv("GITHUB_APP_ID")
-    client_id = os.getenv("GITHUB_CLIENT_ID")
+    if not req.token:
+        raise HTTPException(status_code=400, detail="No token provided.")
 
-    if app_id:
-        app_slug = os.getenv("GITHUB_APP_SLUG", "prism-gate")
-        url = f"{GITHUB_APP_INSTALL_BASE}/{app_slug}/installations/new"
-        return {"url": url, "method": "app"}
-
-    if client_id:
-        redirect_uri = os.getenv(
-            "GITHUB_OAUTH_REDIRECT_URI",
-            "http://localhost:8080/api/setup/github/callback",
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": github_service._auth_header(req.token),
+                "Accept": "application/vnd.github+json",
+            },
         )
-        url = (
-            "https://github.com/login/oauth/authorize"
-            f"?client_id={client_id}"
-            f"&redirect_uri={redirect_uri}"
-            "&scope=repo"
-        )
-        return {"url": url, "method": "oauth"}
-
-    raise HTTPException(
-        status_code=503,
-        detail="GitHub App (GITHUB_APP_ID) or OAuth app (GITHUB_CLIENT_ID) is not configured.",
-    )
-
-
-@router.get("/callback")
-async def github_callback(
-    installation_id: Optional[str] = Query(None),
-    code: Optional[str] = Query(None),
-    setup_action: Optional[str] = Query(None),
-):
-    """Handle the GitHub App installation or OAuth callback.
-
-    After the user installs the GitHub App or completes OAuth, GitHub redirects
-    back here with either an `installation_id` (App flow) or an authorization
-    `code` (OAuth flow). We redirect the browser to the frontend with the
-    result in the query string so the wizard can advance to step 2.
-    """
-    if installation_id:
-        # GitHub App installation completed
-        return RedirectResponse(
-            url=f"/?github_connected=true&installation_id={installation_id}"
-        )
-
-    if code:
-        # OAuth flow — exchange code for access token
-        client_id = os.getenv("GITHUB_CLIENT_ID")
-        client_secret = os.getenv("GITHUB_CLIENT_SECRET")
-        if not client_id or not client_secret:
-            raise HTTPException(status_code=503, detail="GitHub OAuth not configured.")
-
-        import httpx
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://github.com/login/oauth/access_token",
-                json={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "code": code,
-                },
-                headers={"Accept": "application/json"},
-            )
-            data = resp.json()
-
-        token = data.get("access_token")
-        if not token:
+        if resp.status_code != 200:
             raise HTTPException(
-                status_code=400,
-                detail=f"GitHub OAuth token exchange failed: {data.get('error_description', data)}",
+                status_code=401,
+                detail="Invalid or expired GitHub token. Please check your PAT and try again.",
             )
-
-        return RedirectResponse(
-            url=f"/?github_connected=true&github_token={token}"
-        )
-
-    raise HTTPException(
-        status_code=400,
-        detail="Expected 'installation_id' or 'code' query parameter.",
-    )
+        data = resp.json()
+        scopes = resp.headers.get("x-oauth-scopes", "")
+        return {
+            "valid": True,
+            "username": data.get("login", "unknown"),
+            "scopes": scopes,
+        }
 
 
 @router.post("/install-workflow")
-async def install_workflow(req: WorkflowInstallRequest) -> dict:
+async def install_workflow(req: WorkflowInstallRequest, request: Request) -> dict:
     """Commit prism-gate.yml to the target repository.
 
     Uses the GitHub Contents API to create or update
     `.github/workflows/prism-gate.yml` in the given repository.
     """
+    if not req.token:
+        raise HTTPException(
+            status_code=400,
+            detail="No GitHub PAT provided. Please enter your Personal Access Token.",
+        )
+
+    # Quick token validity check — hit /user to confirm the PAT works
+    async with httpx.AsyncClient() as client:
+        user_resp = await client.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": github_service._auth_header(req.token),
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        if user_resp.status_code != 200:
+            raise HTTPException(
+                status_code=401,
+                detail=f"GitHub PAT is invalid or expired (HTTP {user_resp.status_code}). Please check your token.",
+            )
+        github_user = user_resp.json().get("login", "unknown")
+        print(f"[DEBUG] PAT valid for GitHub user: {github_user}")
+        print(f"[DEBUG] Installing workflow to: {req.owner}/{req.repo}")
+
     orchestrator_url = req.orchestrator_url or os.getenv(
         "PRISM_ORCHESTRATOR_URL",
-        "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
+        "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io",
     )
     try:
         result = await github_service.commit_workflow_file(
@@ -137,20 +118,94 @@ async def install_workflow(req: WorkflowInstallRequest) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # If user is logged in, auto-save the registration to DB
+    registration_id = await _save_registration(request, req, orchestrator_url)
+
     return {
         "success": True,
         "message": f"prism-gate.yml installed in {req.owner}/{req.repo}",
         "commit_url": result.get("commit", {}).get("html_url"),
+        "registration_id": registration_id,
     }
+
+
+async def _save_registration(request: Request, req: WorkflowInstallRequest, orchestrator_url: str) -> str | None:
+    """If the user is logged in, persist/update a registration row. Returns registration_id or None."""
+    token = request.cookies.get(COOKIE_NAME)
+    if not token:
+        return None
+    payload = auth_service.verify_jwt(token)
+    if not payload:
+        return None
+
+    user_id = payload.get("sub")
+    try:
+        encrypted_pat = auth_service.encrypt_pat(req.token)
+    except RuntimeError:
+        return None
+
+    from sqlalchemy import select
+    async with async_session() as session:
+        # Check if registration already exists for this user + owner + repo
+        stmt = (
+            select(RegistrationRow)
+            .where(RegistrationRow.user_id == user_id)
+            .where(RegistrationRow.owner == req.owner)
+            .where(RegistrationRow.repo == req.repo)
+            .where(RegistrationRow.status == "active")
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+
+        if existing:
+            existing.gh_pat_encrypted = encrypted_pat
+            existing.orchestrator_url = orchestrator_url
+            existing.workflow_installed = True
+            existing.updated_at = _now()
+            await session.commit()
+            _ensure_repo_index(req.owner, req.repo)
+            return existing.id
+        else:
+            row = RegistrationRow(
+                id=_uuid(),
+                user_id=user_id,
+                gh_pat_encrypted=encrypted_pat,
+                owner=req.owner,
+                repo=req.repo,
+                orchestrator_url=orchestrator_url,
+                workflow_installed=True,
+                status="active",
+            )
+            session.add(row)
+            await session.commit()
+            _ensure_repo_index(req.owner, req.repo)
+            return row.id
+
+
+def _ensure_repo_index(owner: str, repo: str) -> None:
+    """Best-effort creation of the per-repo AI Search index."""
+    try:
+        from agents.shared.data_contract import derive_index_name
+        from mcp_servers.azure_mcp_server.setup import create_index
+
+        idx = derive_index_name(owner, repo)
+        create_index(index_name=idx)
+    except Exception as exc:
+        import logging
+        logging.getLogger("prism.github_setup").warning(
+            "Could not create AI Search index for %s/%s: %s", owner, repo, exc,
+        )
 
 
 @router.get("/status/{owner}/{repo}")
 async def get_status(
     owner: str,
     repo: str,
-    token: str = Query(..., description="GitHub user/installation token"),
+    authorization: str = Header(..., description="Bearer <GitHub token>"),
 ) -> dict:
     """Check whether the workflow file and required secrets are configured."""
+    _validate_name(owner, "owner")
+    _validate_name(repo, "repo")
+    token = authorization.removeprefix("Bearer ").strip()
     workflow_exists = await github_service.check_workflow_exists(
         token=token, owner=owner, repo=repo
     )

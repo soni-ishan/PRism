@@ -1,6 +1,6 @@
 """GitHub API service layer for PRism platform setup.
 
-Handles workflow file injection and GitHub App token management.
+Handles workflow file injection using a user-provided PAT.
 Has zero imports from agents/, mcp_servers/, or foundry/.
 """
 
@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import base64
 import os
-import time
 from typing import Optional
 
 import httpx
@@ -147,7 +146,7 @@ GITHUB_API_BASE = "https://api.github.com"
 def _default_orchestrator_url() -> str:
     return os.getenv(
         "PRISM_ORCHESTRATOR_URL",
-        "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
+        "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io",
     )
 
 
@@ -157,43 +156,164 @@ def build_workflow_content(orchestrator_url: Optional[str] = None) -> str:
     return WORKFLOW_TEMPLATE.format(orchestrator_url=url)
 
 
-async def get_installation_token(installation_id: str) -> str:
-    """Exchange a GitHub App installation ID for a short-lived installation token.
+def _auth_header(token: str) -> str:
+    """Return the correct Authorization value for the token type.
 
-    Requires GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH env vars.
-    Falls back to GITHUB_TOKEN if App credentials are not configured.
+    GitHub accepts 'Bearer' for all modern token types (OAuth, PAT,
+    installation tokens, fine-grained PATs).
     """
-    app_id = os.getenv("GITHUB_APP_ID")
-    private_key_path = os.getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+    return f"Bearer {token}"
 
-    # Fallback: if no App credentials, raise clearly
-    if not app_id or not private_key_path:
-        raise ValueError(
-            "GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY_PATH must be set to use installation tokens."
-        )
 
-    try:
-        import jwt  # PyJWT — optional dep for App auth
+async def _bootstrap_empty_repo(
+    client: httpx.AsyncClient,
+    headers: dict,
+    owner: str,
+    repo: str,
+    branch: str,
+) -> None:
+    """Create an initial commit with a README so the Contents API works.
 
-        with open(private_key_path) as f:
-            private_key = f.read()
+    The GitHub Contents API returns 404 on PUT when a repo has zero commits.
+    This uses the low-level Git Data API (create blob → create tree → create
+    commit → create ref) to bootstrap the default branch.
+    """
+    print(f"[DEBUG] Repo is empty — bootstrapping default branch '{branch}'")
 
-        now = int(time.time())
-        payload = {"iat": now - 60, "exp": now + 600, "iss": app_id}
-        app_jwt = jwt.encode(payload, private_key, algorithm="RS256")
-    except ImportError as exc:
-        raise ImportError("PyJWT is required for GitHub App authentication.") from exc
+    api = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{GITHUB_API_BASE}/app/installations/{installation_id}/access_tokens",
-            headers={
-                "Authorization": f"Bearer {app_jwt}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        resp.raise_for_status()
-        return resp.json()["token"]
+    # 1. Create a blob with minimal README content
+    blob_resp = await client.post(
+        f"{api}/blobs",
+        headers=headers,
+        json={"content": f"# {repo}\n", "encoding": "utf-8"},
+    )
+    blob_resp.raise_for_status()
+    blob_sha = blob_resp.json()["sha"]
+
+    # 2. Create a tree containing the blob
+    tree_resp = await client.post(
+        f"{api}/trees",
+        headers=headers,
+        json={
+            "tree": [
+                {"path": "README.md", "mode": "100644", "type": "blob", "sha": blob_sha}
+            ]
+        },
+    )
+    tree_resp.raise_for_status()
+    tree_sha = tree_resp.json()["sha"]
+
+    # 3. Create a commit pointing to the tree (no parents — initial commit)
+    commit_resp = await client.post(
+        f"{api}/commits",
+        headers=headers,
+        json={
+            "message": "Initial commit",
+            "tree": tree_sha,
+            "parents": [],
+        },
+    )
+    commit_resp.raise_for_status()
+    commit_sha = commit_resp.json()["sha"]
+
+    # 4. Create the default branch ref
+    ref_resp = await client.post(
+        f"{api}/refs",
+        headers=headers,
+        json={"ref": f"refs/heads/{branch}", "sha": commit_sha},
+    )
+    ref_resp.raise_for_status()
+    print(f"[DEBUG] Bootstrapped '{branch}' with initial commit {commit_sha[:8]}")
+
+
+    ref_resp.raise_for_status()
+    print(f"[DEBUG] Bootstrapped '{branch}' with initial commit {commit_sha[:8]}")
+
+
+async def _commit_file_via_git_api(
+    client: httpx.AsyncClient,
+    headers: dict,
+    owner: str,
+    repo: str,
+    branch: str,
+    path: str,
+    content: str,
+    message: str,
+) -> dict:
+    """Create or update a file using the low-level Git Data API.
+
+    This is more reliable than the Contents API and works even when the
+    Contents API returns unexpected 404s (e.g. certain OAuth token types).
+    Flow:  get HEAD → get base tree → create blob → create tree → create
+    commit → update ref.
+    """
+    api = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git"
+
+    # 1. Get current HEAD commit SHA on the branch
+    ref_resp = await client.get(
+        f"{api}/ref/heads/{branch}", headers=headers,
+    )
+    ref_resp.raise_for_status()
+    head_sha = ref_resp.json()["object"]["sha"]
+    print(f"[DEBUG] Git API: HEAD={head_sha[:8]}")
+
+    # 2. Get the tree SHA of that commit
+    commit_resp = await client.get(
+        f"{api}/commits/{head_sha}", headers=headers,
+    )
+    commit_resp.raise_for_status()
+    base_tree_sha = commit_resp.json()["tree"]["sha"]
+
+    # 3. Create a blob with the file content
+    blob_resp = await client.post(
+        f"{api}/blobs", headers=headers,
+        json={"content": content, "encoding": "utf-8"},
+    )
+    blob_resp.raise_for_status()
+    blob_sha = blob_resp.json()["sha"]
+
+    # 4. Create a new tree that adds/replaces the file
+    tree_resp = await client.post(
+        f"{api}/trees", headers=headers,
+        json={
+            "base_tree": base_tree_sha,
+            "tree": [
+                {"path": path, "mode": "100644", "type": "blob", "sha": blob_sha}
+            ],
+        },
+    )
+    tree_resp.raise_for_status()
+    new_tree_sha = tree_resp.json()["sha"]
+
+    # 5. Create a new commit
+    new_commit_resp = await client.post(
+        f"{api}/commits", headers=headers,
+        json={
+            "message": message,
+            "tree": new_tree_sha,
+            "parents": [head_sha],
+        },
+    )
+    new_commit_resp.raise_for_status()
+    new_commit_sha = new_commit_resp.json()["sha"]
+
+    # 6. Update the branch ref to point to the new commit
+    update_ref_resp = await client.patch(
+        f"{api}/refs/heads/{branch}", headers=headers,
+        json={"sha": new_commit_sha},
+    )
+    update_ref_resp.raise_for_status()
+
+    commit_data = new_commit_resp.json()
+    print(f"[DEBUG] Git API: committed {new_commit_sha[:8]} on {branch}")
+    return {
+        "content": {"path": path},
+        "commit": {
+            "sha": new_commit_sha,
+            "html_url": commit_data.get("html_url", ""),
+        },
+    }
 
 
 async def commit_workflow_file(
@@ -211,35 +331,104 @@ async def commit_workflow_file(
     encoded = base64.b64encode(content.encode()).decode()
 
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": _auth_header(token),
         "Accept": "application/vnd.github+json",
+        "User-Agent": "PRism-Setup-Platform",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{WORKFLOW_PATH}"
 
     async with httpx.AsyncClient() as client:
+        # First, verify the token's scopes include repo write access
+        scope_resp = await client.get(
+            f"{GITHUB_API_BASE}/user",
+            headers=headers,
+        )
+        scopes = scope_resp.headers.get("x-oauth-scopes", "")
+        github_user = scope_resp.json().get("login", "unknown") if scope_resp.status_code == 200 else "unknown"
+        print(f"[DEBUG] Token scopes: {scopes}")
+        print(f"[DEBUG] Authenticated as: {github_user}")
+
+        # Verify the repo exists and the token has push access
+        default_branch = "main"
+        repo_resp = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}",
+            headers=headers,
+        )
+        print(f"[DEBUG] Repo check: {repo_resp.status_code}")
+        if repo_resp.status_code == 404:
+            raise PermissionError(
+                f"Repository '{owner}/{repo}' not found. Either the repo does not exist "
+                f"or the authenticated user ({github_user}) does not have access to it. "
+                f"Make sure the repo exists and the GitHub account you signed in with has push access."
+            )
+        if repo_resp.status_code == 200:
+            repo_data = repo_resp.json()
+            permissions = repo_data.get("permissions", {})
+            print(f"[DEBUG] Repo permissions: {permissions}")
+            if not permissions.get("push"):
+                raise PermissionError(
+                    f"The authenticated user ({github_user}) does not have write/push access "
+                    f"to '{owner}/{repo}'. Please ensure this account has push permissions "
+                    f"(admin, maintain, or write role) on the repository."
+                )
+            # GitHub Contents API cannot create files in repos with no commits.
+            # We detect this reactively below (PUT returns 404) and bootstrap.
+            default_branch = repo_data.get("default_branch", "main")
+            print(f"[DEBUG] Default branch: {default_branch}, size: {repo_data.get('size')}")
+
         # Check if file already exists to get its SHA (required for updates)
         existing_sha: Optional[str] = None
         get_resp = await client.get(url, headers=headers)
+        print(f"[DEBUG] GET existing file: {get_resp.status_code}")
         if get_resp.status_code == 200:
             existing_sha = get_resp.json().get("sha")
 
         body: dict = {
             "message": "ci: add PRism deployment risk gate workflow",
             "content": encoded,
+            "branch": default_branch,
         }
         if existing_sha:
             body["sha"] = existing_sha
             body["message"] = "ci: update PRism deployment risk gate workflow"
 
+        print(f"[DEBUG] PUT body keys: {list(body.keys())}, branch={default_branch}")
         put_resp = await client.put(url, headers=headers, json=body)
-        put_resp.raise_for_status()
-        return put_resp.json()
+        print(f"[DEBUG] PUT status: {put_resp.status_code}")
+
+        if put_resp.is_success:
+            return put_resp.json()
+
+        # ── Contents API failed — fall back to the Git Data API ──
+        print(f"[DEBUG] Contents API PUT failed ({put_resp.status_code}): {put_resp.text}")
+        print(f"[DEBUG] Falling back to Git Data API…")
+
+        message = "ci: update PRism deployment risk gate workflow" if existing_sha else "ci: add PRism deployment risk gate workflow"
+
+        # If repo is truly empty (no default branch), bootstrap it first
+        if put_resp.status_code == 404:
+            try:
+                await _bootstrap_empty_repo(client, headers, owner, repo, default_branch)
+            except Exception:
+                pass  # 422 = branch exists = repo not empty, continue
+
+        return await _commit_file_via_git_api(
+            client=client,
+            headers=headers,
+            owner=owner,
+            repo=repo,
+            branch=default_branch,
+            path=WORKFLOW_PATH,
+            content=content,
+            message=message,
+        )
 
 
 async def check_workflow_exists(token: str, owner: str, repo: str) -> bool:
     """Return True if prism-gate.yml already exists in the target repository."""
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": _auth_header(token),
         "Accept": "application/vnd.github+json",
     }
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{WORKFLOW_PATH}"
@@ -255,7 +444,7 @@ async def check_secret_configured(token: str, owner: str, repo: str, secret_name
     Note: GitHub does not expose secret values — only whether a secret exists.
     """
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": _auth_header(token),
         "Accept": "application/vnd.github+json",
     }
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/actions/secrets/{secret_name}"

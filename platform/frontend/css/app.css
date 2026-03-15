@@ -1,0 +1,709 @@
+/* ─── PRism — app.css — dashboard, wizard, Azure picker, finish ─────── */
+
+/* ── Progress bar ───────────────────────────────────────────────────────── */
+.progress-bar-wrap {
+  height: 3px;
+  background: var(--border-light);
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand-purple), var(--brand-purple-lt), var(--brand-green-lt));
+  transition: width .6s cubic-bezier(.4,0,.2,1);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Step navigation pills ──────────────────────────────────────────────── */
+.steps-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 32px 24px 0;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.step-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--border);
+  max-width: 80px;
+  transition: background var(--transition);
+}
+
+.step-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all var(--transition);
+  font-size: .875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.step-pill:hover {
+  border-color: var(--brand-purple-lt);
+  box-shadow: 0 0 0 3px var(--brand-purple-bg);
+}
+
+.step-pill.active {
+  border-color: var(--brand-purple);
+  color: var(--brand-purple-lt);
+  background: var(--brand-purple-bg);
+  box-shadow: 0 0 0 3px var(--brand-purple-bg);
+}
+
+.step-pill.done {
+  border-color: var(--brand-green);
+  color: var(--brand-green-lt);
+  background: var(--brand-green-bg);
+}
+
+.step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .75rem;
+  font-weight: 700;
+  transition: all var(--transition);
+}
+
+.step-pill.active .step-num { background: var(--brand-purple); color: #fff; }
+.step-pill.done   .step-num { background: var(--brand-green);  color: #fff; }
+
+/* ── Wizard card ────────────────────────────────────────────────────────── */
+.wizard-wrap {
+  max-width: 960px;
+  margin: 28px auto;
+  padding: 0 24px;
+  flex: 1;
+  width: 100%;
+}
+
+.wizard-step { animation: slideUp .4s cubic-bezier(.4,0,.2,1); }
+
+.step-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.step-card-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 36px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.step-header-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.github-icon-bg {
+  background: rgba(255,255,255,.08);
+  color: var(--text-primary);
+}
+
+.azure-icon-bg {
+  background: var(--brand-azure-bg);
+  color: var(--brand-azure-lt);
+}
+
+.step-card-header h2 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.step-header-hint {
+  color: var(--text-secondary);
+  font-size: .85rem;
+  margin: 2px 0 0;
+}
+
+.step-status {
+  margin-left: auto;
+  font-size: 1.4rem;
+}
+
+.step-card-body {
+  padding: 32px 36px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DASHBOARD
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.dashboard-page {
+  flex: 1;
+  padding: 0 24px;
+}
+
+.dashboard-wrap {
+  max-width: 960px;
+  margin: 36px auto;
+  width: 100%;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 16px;
+}
+
+.dashboard-header h1 { font-size: 1.5rem; margin-bottom: 4px; }
+
+/* ── Registration cards ─────────────────────────────────────────────────── */
+.registrations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.registration-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition);
+}
+
+.registration-card:hover {
+  border-color: var(--brand-purple);
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
+}
+
+.reg-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reg-repo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1.05rem;
+}
+
+.reg-repo-icon { font-size: 1.2rem; }
+
+.reg-details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .75rem;
+  padding: 4px 10px;
+  border-radius: var(--radius-lg);
+  font-weight: 500;
+}
+
+.tag-green { background: var(--brand-green-bg); color: var(--brand-green-lt); }
+.tag-amber { background: rgba(187,128,9,.1); color: #d29922; }
+.tag-muted { background: var(--surface-2); color: var(--text-hint); border: 1px solid var(--border); }
+
+.reg-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  color: var(--brand-red);
+  border: 1px solid rgba(248,81,73,.3);
+  box-shadow: none;
+  font-size: .82rem;
+  padding: 6px 12px;
+}
+.btn-danger-outline:hover {
+  background: rgba(248,81,73,.1);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 64px 24px;
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+.empty-illustration { margin-bottom: 20px; opacity: .6; }
+.empty-state h3 { font-size: 1.15rem; margin-bottom: 8px; color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AZURE STEP — Visual Cards
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.azure-signin-card {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 28px 32px;
+  background: linear-gradient(135deg, rgba(0,120,212,.06) 0%, rgba(56,139,253,.03) 100%);
+  border: 1px solid rgba(0,120,212,.2);
+  border-radius: var(--radius-md);
+  transition: all var(--transition);
+}
+
+.azure-signin-card:hover {
+  border-color: rgba(0,120,212,.4);
+  box-shadow: 0 0 40px rgba(0,120,212,.08);
+}
+
+.azure-signin-visual {
+  flex-shrink: 0;
+}
+
+.azure-signin-content h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.azure-signin-content p {
+  color: var(--text-secondary);
+  font-size: .85rem;
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+
+.azure-signin-buttons {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.azure-signin-hint {
+  font-size: .78rem;
+  color: var(--text-muted, #666);
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* ── Tile picker (subscription & workspace) ─────────────────────────────── */
+.tile-picker-section {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  margin-bottom: 20px;
+  overflow: hidden;
+  transition: all var(--transition);
+}
+
+.tile-picker-section.dimmed {
+  opacity: .45;
+  pointer-events: none;
+}
+
+.tile-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.tile-picker-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-azure-bg);
+  color: var(--brand-azure-lt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tile-picker-header h4 {
+  font-size: .9rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.picker-hint {
+  font-size: .78rem;
+  color: var(--text-hint);
+  margin: 2px 0 0;
+}
+
+.tile-search-wrap {
+  position: relative;
+  padding: 12px 16px 0;
+}
+
+.tile-search-icon {
+  position: absolute;
+  left: 28px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-hint);
+  pointer-events: none;
+  margin-top: 6px;
+}
+
+.tile-search {
+  width: 100%;
+  height: 38px;
+  padding: 0 14px 0 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: .85rem;
+  transition: all var(--transition);
+}
+
+.tile-search:focus {
+  outline: none;
+  border-color: var(--brand-azure-lt);
+  box-shadow: 0 0 0 3px var(--brand-azure-bg);
+}
+
+.tile-search::placeholder { color: var(--text-hint); }
+
+.tile-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.tile-list::-webkit-scrollbar { width: 6px; }
+.tile-list::-webkit-scrollbar-track { background: transparent; }
+.tile-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.tile-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all .15s ease;
+  text-align: left;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.tile-item:hover {
+  background: rgba(56,139,253,.06);
+  border-color: rgba(56,139,253,.2);
+}
+
+.tile-item.selected {
+  background: var(--brand-azure-bg);
+  border-color: var(--brand-azure);
+  box-shadow: 0 0 0 2px rgba(0,120,212,.15);
+}
+
+.tile-item-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,.05);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all .15s ease;
+}
+
+.tile-item-icon-ws {
+  background: var(--brand-azure-bg);
+  color: var(--brand-azure-lt);
+}
+
+.tile-item.selected .tile-item-icon {
+  background: var(--brand-azure-bg);
+  color: var(--brand-azure-lt);
+}
+
+.tile-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tile-item-name {
+  font-size: .88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-item-meta {
+  font-size: .75rem;
+  color: var(--text-hint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.tile-item-check {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: transparent;
+  transition: all .15s ease;
+}
+
+.tile-item.selected .tile-item-check {
+  border-color: var(--brand-azure);
+  background: var(--brand-azure);
+  color: #fff;
+}
+
+.tile-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  color: var(--text-hint);
+  font-size: .85rem;
+}
+
+.tile-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--brand-azure-lt);
+  border-radius: 50%;
+  animation: tileSpin .8s linear infinite;
+}
+
+@keyframes tileSpin {
+  to { transform: rotate(360deg); }
+}
+
+.tile-empty-hint {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-hint);
+  font-size: .85rem;
+}
+
+.tile-error {
+  color: var(--brand-red);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STEP 3 — FINISH / COMPLETE
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.step-card-finish {
+  text-align: center;
+}
+
+.finish-hero {
+  padding: 48px 36px 32px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(46,160,67,.08) 0%, transparent 60%),
+    var(--surface-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.finish-checkmark {
+  margin-bottom: 20px;
+  animation: scaleIn .5s cubic-bezier(.4,0,.2,1);
+}
+
+.finish-hero h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.finish-subtitle {
+  color: var(--text-secondary);
+  font-size: .95rem;
+}
+
+/* ── Finish summary cards ───────────────────────────────────────────────── */
+.finish-summary-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 28px 36px 0;
+  text-align: left;
+}
+
+.finish-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: all var(--transition);
+}
+
+.finish-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.finish-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.finish-card-label {
+  font-size: .8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-hint);
+  letter-spacing: .5px;
+}
+
+.finish-card-status {
+  margin-left: 4px;
+  font-size: .9rem;
+}
+
+.finish-card-detail {
+  font-size: .85rem;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Finish next-steps ──────────────────────────────────────────────────── */
+.finish-next-steps {
+  padding: 28px 36px;
+  text-align: left;
+}
+
+.finish-section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.next-step-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.next-step-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.next-step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--brand-purple-bg);
+  color: var(--brand-purple-lt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: .8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.next-step-card strong {
+  font-size: .9rem;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.next-step-card p {
+  font-size: .82rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.wizard-finish-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 36px 32px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .steps-nav { flex-wrap: wrap; gap: 8px; padding-top: 20px; }
+  .step-connector { display: none; }
+  .step-pill { font-size: .8rem; padding: 8px 14px; }
+  .step-card-header { padding: 20px 20px; }
+  .step-card-body { padding: 24px 20px; }
+  .finish-summary-cards { grid-template-columns: 1fr; }
+  .wizard-finish-actions { flex-direction: column; }
+  .dashboard-header { flex-direction: column; align-items: flex-start; }
+}

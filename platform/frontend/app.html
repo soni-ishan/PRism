@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PRism — Setup Portal</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="logo-link">
+        <span class="logo"><img src="logo.png" alt="PRism" class="logo-img" />PRism</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/">Home</a>
+        <a href="/app.html#dashboard">Dashboard</a>
+        <a href="/docs.html">Docs</a>
+      </nav>
+      <div class="header-right" id="header-right"></div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════
+       DASHBOARD
+       ══════════════════════════════════════════════════════════ -->
+  <main class="dashboard-page hidden" id="dashboard-page">
+    <div class="dashboard-wrap">
+      <div class="dashboard-header">
+        <div>
+          <h1>Your Registrations</h1>
+          <p class="hint m0">Manage your PRism-connected repositories and workspaces.</p>
+        </div>
+        <button class="btn btn-primary" onclick="startNewRegistration()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v5.5h5.5a.75.75 0 0 1 0 1.5h-5.5v5.5a.75.75 0 0 1-1.5 0v-5.5h-5.5a.75.75 0 0 1 0-1.5h5.5v-5.5A.75.75 0 0 1 8 1z"/></svg>
+          New Registration
+        </button>
+      </div>
+
+      <div id="registrations-list" class="registrations-list">
+        <div class="loading-tag">Loading registrations…</div>
+      </div>
+
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state hidden">
+        <div class="empty-illustration">
+          <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="20" width="60" height="45" rx="6" stroke="#30363d" stroke-width="2" fill="none"/>
+            <path d="M10 32h60" stroke="#30363d" stroke-width="2"/>
+            <circle cx="20" cy="26" r="2" fill="#f85149"/><circle cx="28" cy="26" r="2" fill="#d29922"/><circle cx="36" cy="26" r="2" fill="#3fb950"/>
+            <path d="M25 45h30M30 52h20" stroke="#21262d" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>No registrations yet</h3>
+        <p class="hint">Click <strong>New Registration</strong> to connect your first repository.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════════
+       WIZARD
+       ══════════════════════════════════════════════════════════ -->
+  <div id="wizard-container" class="hidden">
+
+    <!-- ── Progress bar ───────────────────────────────────────── -->
+    <div class="progress-bar-wrap" aria-label="Setup progress">
+      <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+    </div>
+
+    <!-- ── Step indicators ────────────────────────────────────── -->
+    <nav class="steps-nav" aria-label="Wizard steps">
+      <button class="step-pill active" id="pill-1" onclick="goToStep(1)">
+        <span class="step-num" id="step-icon-1">1</span>
+        <span class="step-label">Connect GitHub</span>
+      </button>
+      <div class="step-connector"></div>
+      <button class="step-pill" id="pill-2" onclick="goToStep(2)">
+        <span class="step-num" id="step-icon-2">2</span>
+        <span class="step-label">Connect Azure</span>
+      </button>
+      <div class="step-connector"></div>
+      <button class="step-pill" id="pill-3" onclick="goToStep(3)">
+        <span class="step-num" id="step-icon-3">3</span>
+        <span class="step-label">Complete</span>
+      </button>
+    </nav>
+
+    <!-- ── Main wizard content ────────────────────────────────── -->
+    <main class="wizard-wrap">
+
+      <!-- ── Step 1: Connect GitHub ─────────────────────────── -->
+      <section class="wizard-step" id="step-1" aria-labelledby="step1-title">
+        <div class="step-card">
+          <div class="step-card-header">
+            <div class="step-header-icon github-icon-bg">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </div>
+            <div>
+              <h2 id="step1-title">Connect GitHub</h2>
+              <p class="step-header-hint">Configure your repository and install the PRism workflow</p>
+            </div>
+            <span class="step-status" id="step1-status"></span>
+          </div>
+
+          <div class="step-card-body">
+            <div id="github-connect-actions">
+              <div class="form-group">
+                <label for="inputPAT" class="form-label">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="label-icon"><path d="M8.75 7.25a.75.75 0 0 0-1.5 0v2.5h-2.5a.75.75 0 0 0 0 1.5h2.5v2.5a.75.75 0 0 0 1.5 0v-2.5h2.5a.75.75 0 0 0 0-1.5h-2.5v-2.5z"/><path fill-rule="evenodd" d="M5.5.25a.75.75 0 0 1 .75.75v1.5h3.5V1a.75.75 0 0 1 1.5 0v1.5h1.75A1.75 1.75 0 0 1 14.75 4.25v8.5A1.75 1.75 0 0 1 13 14.5H3A1.75 1.75 0 0 1 1.25 12.75v-8.5A1.75 1.75 0 0 1 3 2.5h1.75V1a.75.75 0 0 1 .75-.75z"/></svg>
+                  Personal Access Token
+                </label>
+                <input id="inputPAT" class="text-input" type="password"
+                       placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+                <p class="hint">
+                  Create a PAT at
+                  <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">
+                    github.com/settings/tokens ↗</a>
+                  with <strong>repo</strong> scope.
+                </p>
+              </div>
+
+              <div class="form-divider"></div>
+
+              <label class="form-label">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="label-icon"><path fill-rule="evenodd" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 0 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5v-9z"/></svg>
+                Target Repository
+              </label>
+              <div class="form-row">
+                <input id="inputOwner" class="text-input" placeholder="owner / org" />
+                <span class="form-sep">/</span>
+                <input id="inputRepo" class="text-input" placeholder="repository" />
+              </div>
+
+              <button class="btn btn-primary btn-with-icon" id="btnInstallWorkflow" onclick="installWorkflow()">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.75 1.75a.75.75 0 0 0-1.5 0v6.69L5.03 6.22a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 0 0-1.06-1.06L8.75 8.44V1.75z"/><path d="M3.5 9.75a.75.75 0 0 0-1.5 0v1.5A2.75 2.75 0 0 0 4.75 14h6.5A2.75 2.75 0 0 0 14 11.25v-1.5a.75.75 0 0 0-1.5 0v1.5c0 .69-.56 1.25-1.25 1.25h-6.5c-.69 0-1.25-.56-1.25-1.25v-1.5z"/></svg>
+                Install PRism Workflow
+              </button>
+              <div id="workflow-install-result" class="hidden"></div>
+            </div>
+
+            <div id="github-connected-panel" class="hidden">
+              <div class="success-banner">
+                <div class="success-banner-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div>
+                  <strong>Workflow installed successfully!</strong>
+                  <p id="github-connected-detail" class="m0"></p>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-with-icon" onclick="goToStep(2)">
+                Continue to Azure Setup
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Step 2: Connect Azure ──────────────────────────── -->
+      <section class="wizard-step hidden" id="step-2" aria-labelledby="step2-title">
+        <div class="step-card">
+          <div class="step-card-header">
+            <div class="step-header-icon azure-icon-bg">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 14.5v-5l5.5-4 5.5 4v5l-5.5 4z"/><path d="M6.5 9.5L12 13.5l5.5-4"/><path d="M12 13.5V18"/></svg>
+            </div>
+            <div>
+              <h2 id="step2-title">Connect Azure</h2>
+              <p class="step-header-hint">Link your Log Analytics workspace for telemetry ingestion</p>
+            </div>
+            <span class="step-status" id="step2-status"></span>
+          </div>
+
+          <div class="step-card-body">
+            <div id="azure-auth-actions">
+              <div class="azure-signin-card">
+                <div class="azure-signin-visual">
+                  <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                    <rect width="48" height="48" rx="12" fill="rgba(56,139,253,0.1)"/>
+                    <path d="M15 33l8-19 4 10h-6l3 9h-9z" fill="#58a6ff" opacity="0.7"/>
+                    <path d="M22 14l11 19H18l4-9h6l-6-10z" fill="#58a6ff"/>
+                  </svg>
+                </div>
+                <div class="azure-signin-content">
+                  <h3>Microsoft Azure</h3>
+                  <p>Sign in to discover your subscriptions and Log Analytics workspaces. PRism requests read-only access.</p>
+                  <div class="azure-signin-buttons">
+                    <button class="btn btn-azure btn-with-icon" id="btnAzureSignIn" onclick="startAzureConnect()">
+                      <svg width="18" height="18" viewBox="0 0 48 48" fill="none"><path d="M15 33l8-19 4 10h-6l3 9h-9z" fill="white" opacity="0.7"/><path d="M22 14l11 19H18l4-9h6l-6-10z" fill="white"/></svg>
+                      Sign in with Microsoft
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="azure-picker-panel" class="hidden">
+              <!-- ── Subscription tile picker ──────────────────── -->
+              <div class="tile-picker-section">
+                <div class="tile-picker-header">
+                  <div class="tile-picker-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                  </div>
+                  <div>
+                    <h4>Select Subscription</h4>
+                    <p class="picker-hint">Choose the Azure subscription to use</p>
+                  </div>
+                </div>
+                <div class="tile-search-wrap">
+                  <svg class="tile-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                  <input type="text" class="tile-search" placeholder="Search subscriptions…" oninput="filterTiles('sub-tile-list', this.value)" />
+                </div>
+                <div class="tile-list" id="sub-tile-list">
+                  <div class="tile-loading">
+                    <div class="tile-spinner"></div>
+                    Loading subscriptions…
+                  </div>
+                </div>
+              </div>
+
+              <!-- ── Workspace tile picker ─────────────────────── -->
+              <div class="tile-picker-section dimmed" id="ws-picker-section">
+                <div class="tile-picker-header">
+                  <div class="tile-picker-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                  </div>
+                  <div>
+                    <h4>Select Workspace</h4>
+                    <p class="picker-hint">Choose a Log Analytics workspace for telemetry</p>
+                  </div>
+                </div>
+                <div class="tile-search-wrap">
+                  <svg class="tile-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                  <input type="text" class="tile-search" placeholder="Search workspaces…" oninput="filterTiles('ws-tile-list', this.value)" />
+                </div>
+                <div class="tile-list" id="ws-tile-list">
+                  <div class="tile-empty-hint">Select a subscription first</div>
+                </div>
+              </div>
+
+              <button class="btn btn-primary btn-with-icon" id="btnConnectWs" onclick="connectWorkspace()" style="display:none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Connect Workspace
+              </button>
+
+              <div id="workspace-connect-result" class="hidden"></div>
+            </div>
+
+            <div id="azure-connected-panel" class="hidden">
+              <div class="success-banner">
+                <div class="success-banner-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div>
+                  <strong>Azure workspace connected!</strong>
+                  <p id="azure-connected-detail" class="m0"></p>
+                </div>
+              </div>
+              <button class="btn btn-primary btn-with-icon" onclick="goToStep(3)">
+                Continue to Finish
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06z"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Step 3: Complete ───────────────────────────────── -->
+      <section class="wizard-step hidden" id="step-3" aria-labelledby="step3-title">
+        <div class="step-card step-card-finish">
+          <div class="finish-hero">
+            <div class="finish-checkmark">
+              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+                <circle cx="28" cy="28" r="26" stroke="#238636" stroke-width="3" fill="rgba(46,160,67,0.1)"/>
+                <polyline points="18 28 25 35 38 22" stroke="#3fb950" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <h2 id="step3-title">Setup Complete</h2>
+            <p class="finish-subtitle">Your PRism registration is configured and ready to go.</p>
+          </div>
+
+          <div class="finish-summary-cards" id="setup-summary">
+            <div class="finish-summary-card" id="finish-github-card">
+              <div class="finish-card-icon github-icon-bg">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+              </div>
+              <div class="finish-card-content">
+                <span class="finish-card-label">GitHub</span>
+                <span class="finish-card-status" id="summary-github-icon"></span>
+                <p class="finish-card-detail" id="summary-github-detail">Not connected yet</p>
+              </div>
+            </div>
+            <div class="finish-summary-card" id="finish-azure-card">
+              <div class="finish-card-icon azure-icon-bg">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6.5 14.5v-5l5.5-4 5.5 4v5l-5.5 4z"/><path d="M6.5 9.5L12 13.5l5.5-4"/><path d="M12 13.5V18"/></svg>
+              </div>
+              <div class="finish-card-content">
+                <span class="finish-card-label">Azure</span>
+                <span class="finish-card-status" id="summary-azure-icon"></span>
+                <p class="finish-card-detail" id="summary-azure-detail">Not connected yet</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="finish-next-steps">
+            <h3 class="finish-section-title">What happens next</h3>
+            <div class="next-step-cards">
+              <div class="next-step-card">
+                <div class="next-step-number">1</div>
+                <div>
+                  <strong>Open a pull request</strong>
+                  <p>Create or update a PR in your connected repository</p>
+                </div>
+              </div>
+              <div class="next-step-card">
+                <div class="next-step-number">2</div>
+                <div>
+                  <strong>Automatic analysis</strong>
+                  <p>PRism analyses the diff and posts a risk assessment comment</p>
+                </div>
+              </div>
+              <div class="next-step-card">
+                <div class="next-step-number">3</div>
+                <div>
+                  <strong>Review &amp; merge</strong>
+                  <p>Use the risk insights to make informed deployment decisions</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="orchestrator-status" class="loading-tag" style="display:none">Checking orchestrator…</div>
+          <a id="orchestrator-health-link" href="#" style="display:none"></a>
+
+          <div id="env-hint" style="display:none">
+            <pre id="env-output" class="code-block"></pre>
+          </div>
+
+          <div class="wizard-finish-actions">
+            <button class="btn btn-secondary btn-with-icon" onclick="showDashboard()">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M9.78 12.78a.75.75 0 0 1-1.06 0L4.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 1.06L6.06 8l3.72 3.72a.75.75 0 0 1 0 1.06z"/></svg>
+              Back to Dashboard
+            </button>
+            <button class="btn btn-success btn-with-icon" onclick="finishSetup()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              Finish Setup
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ── Footer ─────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/soni-ishan/PRism" target="_blank" rel="noopener">PRism on GitHub</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/docs.html">Documentation</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/api/docs" target="_blank" rel="noopener">API Docs</a>
+    </p>
+  </footer>
+
+  <!-- Scripts: auth first (state + helpers), then app logic -->
+  <script src="js/auth.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

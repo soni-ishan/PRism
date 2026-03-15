@@ -1,0 +1,269 @@
+name: Deploy PRism Platform to Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      skip_infrastructure:
+        description: 'Skip infrastructure deployment (app-only update)'
+        required: false
+        type: boolean
+        default: false
+      skip_docker:
+        description: 'Skip Docker build & push (infra-only change)'
+        required: false
+        type: boolean
+        default: false
+
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'platform/**'
+      - 'foundry/deployment_config/platform/**'
+
+env:
+  AZURE_RESOURCE_GROUP: rg-prism-platform-${{ github.event.inputs.environment || 'dev' }}
+  AZURE_LOCATION: eastus2
+  INFRA_DEPLOYMENT_NAME: prism-platform-infra-${{ github.run_number }}
+  APP_DEPLOYMENT_NAME: prism-platform-app-${{ github.run_number }}
+
+jobs:
+  deploy-platform:
+    name: Deploy Platform to Azure
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+
+    steps:
+      # ════════════════════════════════════════════════════════════
+      # Setup
+      # ════════════════════════════════════════════════════════════
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: '{"clientId":"${{ secrets.AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.AZURE_CLIENT_SECRET }}","tenantId":"${{ secrets.AZURE_TENANT_ID }}","subscriptionId":"${{ secrets.AZURE_SUBSCRIPTION_ID }}"}'
+
+      # ════════════════════════════════════════════════════════════
+      # Resource Group
+      # ════════════════════════════════════════════════════════════
+
+      - name: Create Resource Group
+        if: ${{ !inputs.skip_infrastructure }}
+        run: |
+          az group create \
+            --name ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location ${{ env.AZURE_LOCATION }}
+
+      # ════════════════════════════════════════════════════════════
+      # Deploy Infrastructure (platform-infra.bicep)
+      # ════════════════════════════════════════════════════════════
+
+      - name: Build Infra Parameters
+        run: |
+          cat > infra-params.json << 'EOF'
+          {
+            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "projectName":    { "value": "prism" },
+              "environment":    { "value": "${{ github.event.inputs.environment || 'dev' }}" },
+              "location":       { "value": "${{ env.AZURE_LOCATION }}" },
+              "pgAdminLogin":   { "value": "${{ secrets.PG_ADMIN_LOGIN || 'prismadmin' }}" },
+              "pgAdminPassword":{ "value": "${{ secrets.PG_ADMIN_PASSWORD }}" }
+            }
+          }
+          EOF
+
+      - name: Deploy Platform Infrastructure
+        if: ${{ !inputs.skip_infrastructure }}
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.INFRA_DEPLOYMENT_NAME }} \
+            --template-file foundry/deployment_config/platform/platform-infra.bicep \
+            --parameters infra-params.json \
+            --output json > infra-output.json
+
+          ACR_NAME=$(jq -r '.properties.outputs.containerRegistryName.value' infra-output.json)
+          ACR_LOGIN_SERVER=$(jq -r '.properties.outputs.containerRegistryLoginServer.value' infra-output.json)
+          PG_SERVER_FQDN=$(jq -r '.properties.outputs.pgServerFqdn.value' infra-output.json)
+          PG_DB_NAME=$(jq -r '.properties.outputs.pgDatabaseName.value' infra-output.json)
+
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+          echo "PG_SERVER_FQDN=$PG_SERVER_FQDN" >> $GITHUB_ENV
+          echo "PG_DB_NAME=$PG_DB_NAME" >> $GITHUB_ENV
+
+      - name: Get Infra Outputs (existing deployment)
+        if: ${{ inputs.skip_infrastructure }}
+        run: |
+          LATEST=$(az deployment group list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?starts_with(name,'prism-platform-infra-')] | sort_by(@, &properties.timestamp) | [-1].name" \
+            --output tsv)
+
+          if [ -z "$LATEST" ]; then
+            echo "::error::No previous infra deployment found. Run without skip_infrastructure first."
+            exit 1
+          fi
+
+          az deployment group show \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name "$LATEST" \
+            --query "properties.outputs" \
+            --output json > infra-output.json
+
+          ACR_NAME=$(jq -r '.containerRegistryName.value' infra-output.json)
+          ACR_LOGIN_SERVER=$(jq -r '.containerRegistryLoginServer.value' infra-output.json)
+          PG_SERVER_FQDN=$(jq -r '.pgServerFqdn.value' infra-output.json)
+          PG_DB_NAME=$(jq -r '.pgDatabaseName.value' infra-output.json)
+
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
+          echo "PG_SERVER_FQDN=$PG_SERVER_FQDN" >> $GITHUB_ENV
+          echo "PG_DB_NAME=$PG_DB_NAME" >> $GITHUB_ENV
+
+      # ════════════════════════════════════════════════════════════
+      # Build & Push Docker Image
+      # ════════════════════════════════════════════════════════════
+
+      - name: Login to ACR
+        if: ${{ !inputs.skip_docker }}
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and Push Platform Image
+        if: ${{ !inputs.skip_docker }}
+        run: |
+          IMAGE_TAG="${{ env.ACR_LOGIN_SERVER }}/prism-platform:${{ github.sha }}"
+          IMAGE_LATEST="${{ env.ACR_LOGIN_SERVER }}/prism-platform:latest"
+
+          docker build \
+            --platform linux/amd64 \
+            -t "$IMAGE_TAG" \
+            -t "$IMAGE_LATEST" \
+            -f foundry/deployment_config/platform/Dockerfile \
+            platform/
+
+          docker push "$IMAGE_TAG"
+          docker push "$IMAGE_LATEST"
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Use latest image tag (skip docker)
+        if: ${{ inputs.skip_docker }}
+        run: |
+          echo "IMAGE_TAG=${{ env.ACR_LOGIN_SERVER }}/prism-platform:latest" >> $GITHUB_ENV
+
+      # ════════════════════════════════════════════════════════════
+      # Deploy Container App (platform-app.bicep)
+      # ════════════════════════════════════════════════════════════
+
+      - name: Build App Parameters
+        run: |
+          cat > app-params.json << 'EOF'
+          {
+            "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+            "contentVersion": "1.0.0.0",
+            "parameters": {
+              "projectName":             { "value": "prism" },
+              "environment":             { "value": "${{ github.event.inputs.environment || 'dev' }}" },
+              "location":               { "value": "${{ env.AZURE_LOCATION }}" },
+              "imageTag":               { "value": "${{ github.sha }}" },
+              "pgAdminLogin":           { "value": "${{ secrets.PG_ADMIN_LOGIN || 'prismadmin' }}" },
+              "pgAdminPassword":        { "value": "${{ secrets.PG_ADMIN_PASSWORD }}" },
+              "orchestratorUrl":        { "value": "${{ secrets.ORCHESTRATOR_URL }}" },
+              "platformOrigin":         { "value": "${{ vars.PLATFORM_ORIGIN || '' }}" },
+              "githubOAuthClientId":    { "value": "${{ secrets.PLATFORM_GITHUB_CLIENT_ID || '' }}" },
+              "githubOAuthClientSecret":{ "value": "${{ secrets.PLATFORM_GITHUB_CLIENT_SECRET || '' }}" },
+              "azureAdClientId":        { "value": "${{ secrets.PLATFORM_AZURE_AD_CLIENT_ID || '' }}" },
+              "azureAdClientSecret":    { "value": "${{ secrets.PLATFORM_AZURE_AD_CLIENT_SECRET || '' }}" },
+              "azureAdTenantId":        { "value": "${{ secrets.PLATFORM_AZURE_AD_TENANT_ID || '' }}" },
+              "jwtSecret":             { "value": "${{ secrets.PLATFORM_JWT_SECRET }}" },
+              "encryptionKey":         { "value": "${{ secrets.PLATFORM_ENCRYPTION_KEY }}" }
+            }
+          }
+          EOF
+
+      - name: Deploy Platform Container App
+        run: |
+          az deployment group create \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.APP_DEPLOYMENT_NAME }} \
+            --template-file foundry/deployment_config/platform/platform-app.bicep \
+            --parameters app-params.json \
+            --output json > app-output.json
+
+          PLATFORM_APP_NAME=$(jq -r '.properties.outputs.platformAppName.value' app-output.json)
+          PLATFORM_URL=$(jq -r '.properties.outputs.platformAppUrl.value' app-output.json)
+
+          echo "PLATFORM_APP_NAME=$PLATFORM_APP_NAME" >> $GITHUB_ENV
+          echo "PLATFORM_URL=$PLATFORM_URL" >> $GITHUB_ENV
+
+      # ════════════════════════════════════════════════════════════
+      # Post-Deployment
+      # ════════════════════════════════════════════════════════════
+
+      - name: Health Check
+        run: |
+          echo "Waiting for platform to start..."
+          sleep 30
+
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.PLATFORM_URL }}/health")
+
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "✓ Health check passed (HTTP $RESPONSE)"
+          else
+            echo "✗ Health check failed (HTTP $RESPONSE)"
+            exit 1
+          fi
+
+      - name: Deployment Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # PRism Platform Deployment Summary
+
+          ## Deployment Details
+
+          - **Environment**: ${{ github.event.inputs.environment || 'dev' }}
+          - **Resource Group**: ${{ env.AZURE_RESOURCE_GROUP }}
+          - **Location**: ${{ env.AZURE_LOCATION }}
+          - **Commit**: \`${{ github.sha }}\`
+
+          ## Deployed Components
+
+          | Resource | Value |
+          |----------|-------|
+          | **Platform URL** | [${{ env.PLATFORM_URL }}](${{ env.PLATFORM_URL }}) |
+          | **Container App** | ${{ env.PLATFORM_APP_NAME }} |
+          | **ACR** | ${{ env.ACR_LOGIN_SERVER }} |
+          | **PostgreSQL** | ${{ env.PG_SERVER_FQDN }} |
+          | **Database** | ${{ env.PG_DB_NAME }} |
+
+          ## Required Secrets
+
+          Make sure these are set in **Settings → Secrets → Actions**:
+
+          | Secret | Status |
+          |--------|--------|
+          | \`AZURE_CLIENT_ID\` | ${{ secrets.AZURE_CLIENT_ID && '✅' || '❌ Missing' }} |
+          | \`AZURE_CLIENT_SECRET\` | ${{ secrets.AZURE_CLIENT_SECRET && '✅' || '❌ Missing' }} |
+          | \`AZURE_TENANT_ID\` | ${{ secrets.AZURE_TENANT_ID && '✅' || '❌ Missing' }} |
+          | \`AZURE_SUBSCRIPTION_ID\` | ${{ secrets.AZURE_SUBSCRIPTION_ID && '✅' || '❌ Missing' }} |
+          | \`PG_ADMIN_PASSWORD\` | ${{ secrets.PG_ADMIN_PASSWORD && '✅' || '❌ Missing' }} |
+          | \`PLATFORM_JWT_SECRET\` | ${{ secrets.PLATFORM_JWT_SECRET && '✅' || '❌ Missing' }} |
+          | \`PLATFORM_ENCRYPTION_KEY\` | ${{ secrets.PLATFORM_ENCRYPTION_KEY && '✅' || '❌ Missing' }} |
+          | \`ORCHESTRATOR_URL\` | ${{ secrets.ORCHESTRATOR_URL && '✅' || '❌ Missing' }} |
+          EOF

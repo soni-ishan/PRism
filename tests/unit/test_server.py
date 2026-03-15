@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from agents.orchestrator.server import app, _parse_github_webhook, _verify_signature, USAGE_TRACKER
-from agents.shared.data_contract import VerdictReport
+from agents.shared.data_contract import RepoContext, VerdictReport
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -112,8 +112,9 @@ class TestAPIEndpoints:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    @patch("agents.orchestrator.server._lookup_repo_context", new_callable=AsyncMock, return_value=RepoContext(owner="team-prism", repo="backend", gh_token="fake-token"))
     @patch("agents.orchestrator.server.orchestrate", new_callable=AsyncMock)
-    def test_analyze_endpoint(self, mock_orchestrate):
+    def test_analyze_endpoint(self, mock_orchestrate, _mock_lookup):
         mock_orchestrate.return_value = MOCK_VERDICT
 
         resp = client.post(
