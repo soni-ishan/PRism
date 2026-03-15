@@ -1,0 +1,8 @@
+azure-functions
+azure-identity>=1.25.2
+azure-core
+azure-search-documents==11.4.0
+azure-monitor-query==1.2.0
+openai
+python-dotenv
+asyncpg>=0.29.0

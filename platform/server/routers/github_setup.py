@@ -106,7 +106,7 @@ async def install_workflow(req: WorkflowInstallRequest, request: Request) -> dic
 
     orchestrator_url = req.orchestrator_url or os.getenv(
         "PRISM_ORCHESTRATOR_URL",
-        "https://nontransportable-monte-advocatory.ngrok-free.dev",
+        "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io",
     )
     try:
         result = await github_service.commit_workflow_file(

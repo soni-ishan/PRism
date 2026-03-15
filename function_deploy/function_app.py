@@ -11,7 +11,15 @@ import asyncio
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Ensure repo root is on sys.path so mcp_servers.* is importable
+# when this file is run as a standalone Azure Function.
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 import azure.functions as func
 
@@ -31,7 +39,7 @@ def _utc_now_iso() -> str:
 
 
 @app.event_grid_trigger(arg_name="event")
-async def ingest_from_monitor_alert(event: func.EventGridEvent) -> None:
+async def ingest_from_monitor_alert_trigger(event: func.EventGridEvent) -> None:
     """Push Monitor-alert-driven incidents into AI Search for all registered repos."""
     try:
         payload = event.get_json()
@@ -95,7 +103,7 @@ async def ingest_logs_http(req: func.HttpRequest) -> func.HttpResponse:
     try:
         if owner and repo:
             # Single-repo mode: look up registration from DB
-            from mcp_servers.azure_mcp_server.ingest import fetch_all_registrations
+            from mcp_servers.azure_mcp_server.ingest import fetch_all_registrations, _derive_index_name
             registrations = await fetch_all_registrations()
             reg = next(
                 (r for r in registrations if r["owner"] == owner and r["repo"] == repo),

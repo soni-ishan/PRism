@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+
+    "_comment_shared": { "value": "── Shared across all deployments ──" },
+    "projectName":              { "value": "prism" },
+    "environment":              { "value": "dev" },
+    "location":                 { "value": "eastus2" },
+
+    "_comment_infra": { "value": "── Infrastructure (infra.bicep) ──" },
+    "openAiModelDeployment":    { "value": "gpt-4o" },
+    "openAiModelVersion":       { "value": "2024-11-20" },
+    "openAiModelCapacity":      { "value": 30 },
+    "pgAdminLogin":             { "value": "prismadmin" },
+    "pgAdminPassword":          { "value": "<REPLACE-strong-password>" },
+    "pgSkuTier":                { "value": "Burstable" },
+    "pgSkuName":                { "value": "Standard_B1ms" },
+    "pgStorageSizeGB":          { "value": 32 },
+    "deployFunctionApp":        { "value": false },
+
+    "_comment_orchestrator": { "value": "── Orchestrator (orchestrator.bicep) ──" },
+    "githubWebhookSecret":      { "value": "" },
+    "agentTimeoutSeconds":      { "value": 60 },
+
+    "_comment_platform": { "value": "── Platform (platform-app.bicep) ──" },
+    "orchestratorUrl":          { "value": "https://<orchestrator-fqdn>" },
+    "platformOrigin":           { "value": "" },
+    "githubOAuthClientId":      { "value": "" },
+    "githubOAuthClientSecret":  { "value": "" },
+    "azureAdClientId":          { "value": "" },
+    "azureAdClientSecret":      { "value": "" },
+    "azureAdTenantId":          { "value": "" },
+    "githubOAuthRedirectUri":   { "value": "" },
+    "azureAdRedirectUri":       { "value": "" },
+    "jwtSecret":                { "value": "<REPLACE-jwt-secret>" },
+
+    "_comment_security": { "value": "── Shared secrets ──" },
+    "encryptionKey":            { "value": "<REPLACE-encryption-key>" }
+  }
+}

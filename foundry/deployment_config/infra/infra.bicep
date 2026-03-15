@@ -39,10 +39,6 @@ param location string = resourceGroup().location
 
 // — GitHub secrets —
 
-@description('GitHub Personal Access Token (stored in Key Vault)')
-@secure()
-param githubToken string
-
 @description('GitHub Webhook Secret (stored in Key Vault)')
 @secure()
 param githubWebhookSecret string = ''
@@ -161,12 +157,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enablePurgeProtection: true
     networkAcls: { defaultAction: 'Allow', bypass: 'AzureServices' }
   }
-}
-
-resource githubTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  name: 'github-token'
-  parent: keyVault
-  properties: { value: githubToken }
 }
 
 resource webhookSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(githubWebhookSecret)) {

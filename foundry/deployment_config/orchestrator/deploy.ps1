@@ -20,7 +20,7 @@
 param(
     [string]$ResourceGroupName = "rg-prism-dev",
     [string]$Location = "eastus2",
-    [string]$ParametersFile = "$PSScriptRoot\parameters.json",
+    [string]$ParametersFile = "$PSScriptRoot\..\parameters.json",
     [switch]$SkipDocker
 )
 
@@ -46,9 +46,25 @@ if (-not $SkipDocker) {
 }
 if (-not (Test-Path $ParametersFile)) {
     Write-Err "Parameters file not found: $ParametersFile"
-    Write-Info "Copy parameters.example.json → parameters.json"
+    Write-Info "Create ..\parameters.json from parameters.example.json and fill in secrets."
     exit 1
 }
+
+# ── Filter parameters to only those declared in the Bicep template ──
+function Get-FilteredParamsFile {
+    param([string]$BicepFile, [string]$ParamsFile)
+    $bicepParams = (Select-String -Path $BicepFile -Pattern '^param\s+(\w+)' | ForEach-Object { $_.Matches.Groups[1].Value })
+    $allParams   = (Get-Content $ParamsFile -Raw | ConvertFrom-Json).parameters
+    $filtered    = [ordered]@{}
+    foreach ($p in $bicepParams) {
+        if ($allParams.PSObject.Properties[$p]) { $filtered[$p] = $allParams.$p }
+    }
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) "prism-params-$(Get-Random).json"
+    @{ '$schema' = 'https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#'; contentVersion = '1.0.0.0'; parameters = $filtered } | ConvertTo-Json -Depth 10 | Set-Content $tmp
+    return $tmp
+}
+$FilteredParamsFile = Get-FilteredParamsFile -BicepFile "$PSScriptRoot\orchestrator.bicep" -ParamsFile $ParametersFile
+Write-Ok "Filtered parameters for orchestrator.bicep"
 
 # ── Get infra outputs ─────────────────────────────────────────
 
@@ -122,7 +138,7 @@ $result = az deployment group create `
     --resource-group $ResourceGroupName `
     --name $DeploymentName `
     --template-file "$PSScriptRoot\orchestrator.bicep" `
-    --parameters $ParametersFile `
+    --parameters $FilteredParamsFile `
     --parameters location=$Location `
     --output json 2>&1
 

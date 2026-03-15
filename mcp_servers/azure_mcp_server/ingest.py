@@ -33,6 +33,131 @@ logger = logging.getLogger("prism.ingest")
 DEFAULT_INDEX_NAME = "incidents"
 
 
+# ── Registration DB helpers ───────────────────────────────────
+
+def _derive_index_name(owner: str, repo: str) -> str:
+    """Derive a deterministic AI Search index name from owner/repo."""
+    raw = f"incidents-{owner}-{repo}".lower()
+    sanitised = "".join(c if c.isalnum() or c == "-" else "-" for c in raw)
+    while "--" in sanitised:
+        sanitised = sanitised.replace("--", "-")
+    return sanitised.strip("-")
+
+
+async def fetch_all_registrations() -> list[dict[str, str]]:
+    """Fetch all active registrations with a linked Azure workspace from the DB.
+
+    Returns a list of dicts with keys:
+        owner, repo, azure_customer_id, azure_tenant_id, index_name
+    """
+    db_url = os.getenv("DATABASE_URL", "")
+    if not db_url:
+        logger.warning("DATABASE_URL not set — cannot fetch registrations")
+        return []
+
+    # Convert SQLAlchemy-style URL to asyncpg format
+    dsn = db_url
+    if dsn.startswith("postgresql+asyncpg://"):
+        dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+    # Strip ?ssl=... from DSN — we pass an explicit ssl context instead
+    from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+    parsed = urlparse(dsn)
+    qs = parse_qs(parsed.query)
+    qs.pop("ssl", None)
+    clean_query = urlencode(qs, doseq=True)
+    dsn = urlunparse(parsed._replace(query=clean_query))
+
+    import asyncpg  # noqa: lazy import
+    import ssl as _ssl
+
+    ssl_ctx = _ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = _ssl.CERT_NONE
+
+    try:
+        conn = await asyncpg.connect(dsn, ssl=ssl_ctx, timeout=15)
+        try:
+            rows = await conn.fetch(
+                "SELECT owner, repo, azure_customer_id, azure_tenant_id "
+                "FROM registrations "
+                "WHERE azure_customer_id IS NOT NULL "
+                "  AND azure_customer_id != '' "
+                "  AND status = 'active'"
+            )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.error("Failed to fetch registrations from DB: %s", exc)
+        return []
+
+    results = []
+    for r in rows:
+        results.append({
+            "owner": r["owner"],
+            "repo": r["repo"],
+            "azure_customer_id": r["azure_customer_id"],
+            "azure_tenant_id": r["azure_tenant_id"] or "",
+            "index_name": _derive_index_name(r["owner"], r["repo"]),
+        })
+    logger.info("Fetched %d active registrations with Azure workspace", len(results))
+    return results
+
+
+async def ingest_all_repos(
+    fired_time: str | None = None,
+    window_minutes: int = 30,
+) -> dict[str, Any]:
+    """Run ingestion for every registered repo in the database.
+
+    Returns an aggregate summary:
+        {repos_processed, repos_skipped, total_fetched, total_prepared, total_pushed, per_repo: [...]}
+    """
+    registrations = await fetch_all_registrations()
+    if not registrations:
+        logger.info("No registrations with Azure workspace found")
+        return {"repos_processed": 0, "repos_skipped": 0,
+                "total_fetched": 0, "total_prepared": 0, "total_pushed": 0, "per_repo": []}
+
+    total_fetched = total_prepared = total_pushed = 0
+    repos_processed = repos_skipped = 0
+    per_repo: list[dict[str, Any]] = []
+
+    for reg in registrations:
+        repo_label = f"{reg['owner']}/{reg['repo']}"
+        tenant_id = reg["azure_tenant_id"] or None
+        try:
+            summary = await ingest_from_logs(
+                workspace_id=reg["azure_customer_id"],
+                fired_time=fired_time,
+                window_minutes=window_minutes,
+                tenant_id=tenant_id,
+                index_name=reg["index_name"],
+            )
+            total_fetched += summary["fetched"]
+            total_prepared += summary["prepared"]
+            total_pushed += summary["pushed"]
+            repos_processed += 1
+            per_repo.append({"repo": repo_label, "index": reg["index_name"], **summary})
+            logger.info(
+                "Ingest %s: fetched=%d prepared=%d pushed=%d",
+                repo_label, summary["fetched"], summary["prepared"], summary["pushed"],
+            )
+        except Exception as exc:
+            repos_skipped += 1
+            per_repo.append({"repo": repo_label, "error": str(exc)})
+            logger.warning("Ingest failed for %s: %s", repo_label, exc)
+
+    return {
+        "repos_processed": repos_processed,
+        "repos_skipped": repos_skipped,
+        "total_fetched": total_fetched,
+        "total_prepared": total_prepared,
+        "total_pushed": total_pushed,
+        "per_repo": per_repo,
+    }
+
+
 # ── Configuration ────────────────────────────────────────────
 
 SEVERITY_MAP = {
@@ -248,7 +373,22 @@ async def fetch_exceptions(
     credential = _build_log_analytics_credential(tenant_id)
     logs_client = LogsQueryClient(credential)
 
-    kql = f"""
+    # Workspace-based App Insights uses AppExceptions; classic uses exceptions.
+    # Try AppExceptions first (workspace-based), fall back to exceptions (classic).
+    kql_workspace = f"""
+    AppExceptions
+    | where TimeGenerated >= datetime('{fired_time}') - {window_minutes}m
+    | where TimeGenerated <= datetime('{fired_time}') + 5m
+    | where SeverityLevel >= 3
+    | project
+        timestamp = TimeGenerated,
+        exceptionType = ExceptionType,
+        message = OuterMessage,
+        stackTrace = Details,
+        serviceName = AppRoleName
+    | top 50 by timestamp desc
+    """
+    kql_classic = f"""
     exceptions
     | where timestamp >= datetime('{fired_time}') - {window_minutes}m
     | where timestamp <= datetime('{fired_time}') + 5m
@@ -261,6 +401,7 @@ async def fetch_exceptions(
         serviceName = cloud_RoleName
     | top 50 by timestamp desc
     """
+    kql = kql_workspace
 
     try:
         result = logs_client.query_workspace(
@@ -287,7 +428,30 @@ async def fetch_exceptions(
         return exceptions
 
     except Exception as exc:
-        logger.warning("Failed to query App Insights: %s", exc)
+        if "SEM0100" in str(exc) and kql == kql_workspace:
+            logger.info("AppExceptions table not found, falling back to classic schema")
+            kql = kql_classic
+            try:
+                result = logs_client.query_workspace(
+                    workspace_id=workspace_id,
+                    query=kql,
+                    timespan=timedelta(hours=1),
+                )
+                if result.status == LogsQueryStatus.SUCCESS and result.tables:
+                    for row in result.tables[0].rows:
+                        exceptions.append({
+                            "timestamp": str(row[0]),
+                            "exception_type": str(row[1] or ""),
+                            "message": str(row[2] or ""),
+                            "stacktrace": str(row[3] or ""),
+                            "service_name": str(row[4] or ""),
+                        })
+                    logger.info("Fetched %d exceptions (classic schema)", len(exceptions))
+                    return exceptions
+            except Exception as fallback_exc:
+                logger.warning("Classic schema fallback also failed: %s", fallback_exc)
+        else:
+            logger.warning("Failed to query App Insights: %s", exc)
         return []
 
 
@@ -366,13 +530,15 @@ async def ingest_from_logs(
     fired_time: str | None = None,
     window_minutes: int = 30,
     tenant_id: str | None = None,
+    index_name: str | None = None,
 ) -> dict[str, int]:
     """
     Independent Azure-native ingestion path:
     Log Analytics exceptions -> file extraction -> AI Search incidents index.
 
     Args:
-        tenant_id: Customer's Azure AD tenant for cross-tenant workspace access.
+        tenant_id:  Customer's Azure AD tenant for cross-tenant workspace access.
+        index_name: Per-repo AI Search index name (e.g. incidents-owner-repo).
 
     Returns summary counts with keys: fetched, prepared, pushed.
     """
@@ -400,7 +566,7 @@ async def ingest_from_logs(
         exception_data["files_involved"] = sorted(set(files))
         incident = _build_incident_from_exception(exception_data)
         prepared += 1
-        if push_incident(incident):
+        if push_incident(incident, index_name=index_name):
             pushed += 1
 
     return {"fetched": len(exceptions), "prepared": prepared, "pushed": pushed}
@@ -418,6 +584,7 @@ def _extract_resource_name(resource_id: str) -> str:
 async def ingest_from_alert(
     alert_payload: dict[str, Any],
     tenant_id: str | None = None,
+    index_name: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Full ingestion pipeline: alert → App Insights → LLM → AI Search.
@@ -493,8 +660,42 @@ async def ingest_from_alert(
     }
 
     # ── Push to AI Search ────────────────────────────────
-    success = push_incident(incident)
+    success = push_incident(incident, index_name=index_name)
     return incident if success else None
+
+
+async def ingest_alert_all_repos(
+    alert_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Run alert-based ingestion for every registered repo.
+
+    Looks up all active registrations and runs ingest_from_alert for each,
+    using the registration's workspace and per-repo index.
+    """
+    registrations = await fetch_all_registrations()
+    results = []
+    for reg in registrations:
+        tenant_id = reg["azure_tenant_id"] or None
+        original = os.environ.get("AZURE_LOG_WORKSPACE_ID")
+        os.environ["AZURE_LOG_WORKSPACE_ID"] = reg["azure_customer_id"]
+        try:
+            incident = await ingest_from_alert(
+                alert_payload=alert_payload,
+                tenant_id=tenant_id,
+                index_name=reg["index_name"],
+            )
+            if incident:
+                results.append(incident)
+        except Exception as exc:
+            logger.warning(
+                "Alert ingest failed for %s/%s: %s", reg["owner"], reg["repo"], exc
+            )
+        finally:
+            if original is not None:
+                os.environ["AZURE_LOG_WORKSPACE_ID"] = original
+            elif "AZURE_LOG_WORKSPACE_ID" in os.environ:
+                del os.environ["AZURE_LOG_WORKSPACE_ID"]
+    return results
 
 
 def main() -> None:

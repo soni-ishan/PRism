@@ -115,9 +115,6 @@ APPLICATIONINSIGHTS_CONNECTION_STRING=$aiConnStr
 
 # ── Key Vault ──
 KEY_VAULT_URL=$kvUrl
-
-# ── GitHub (Fine-grained PAT) ──
-GH_PAT=
 "@
 
 $orchEnvPath = Join-Path $ProjectRoot ".env"
@@ -141,7 +138,7 @@ GITHUB_OAUTH_REDIRECT_URI=http://localhost:8080/api/setup/github/callback
 # ── Azure AD OAuth ──
 AZURE_AD_CLIENT_ID=
 AZURE_AD_CLIENT_SECRET=
-AZURE_AD_TENANT_ID=common
+AZURE_AD_TENANT_ID=
 AZURE_AD_REDIRECT_URI=http://localhost:8080/api/setup/azure/callback
 
 # ── Security ──
@@ -166,10 +163,10 @@ Write-Host @"
   Platform .env:      $platEnvPath
 
   REMAINING manual steps:
-    1. Set GH_PAT in .env (GitHub Personal Access Token)
-    2. Set GITHUB_OAUTH_CLIENT_ID/SECRET in platform\.env
-    3. Set AZURE_AD_CLIENT_ID/SECRET in platform\.env
-    4. Set JWT_SECRET in platform\.env
-    5. Set ENCRYPTION_KEY in platform\.env
+    1. Set GITHUB_OAUTH_CLIENT_ID/SECRET in platform\.env
+    2. Set AZURE_AD_CLIENT_ID/SECRET/TENANT_ID in platform\.env
+       (AZURE_AD_TENANT_ID must be a specific tenant GUID, not 'common')
+    3. Set JWT_SECRET in platform\.env  (e.g. openssl rand -base64 32)
+    4. Set ENCRYPTION_KEY in platform\.env  (python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 
 "@ -ForegroundColor Green

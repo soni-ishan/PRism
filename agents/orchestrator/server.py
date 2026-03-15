@@ -185,26 +185,6 @@ async def _lookup_repo_context(full_repo: str) -> RepoContext | None:
         return None
 
 
-def _build_fallback_context(full_repo: str) -> RepoContext | None:
-    """Build a ``RepoContext`` from environment variables (single-repo compat).
-
-    Note: ``azure_search_index`` is intentionally omitted.  Without a
-    platform registration the History Agent will report that no
-    deployment connection exists.
-    """
-    token = os.getenv("GH_PAT")
-    if not token:
-        return None
-    parts = full_repo.split("/", 1)
-    if len(parts) != 2:
-        return None
-    return RepoContext(
-        owner=parts[0],
-        repo=parts[1],
-        gh_token=token,
-    )
-
-
 # ── Healthcheck ──────────────────────────────────────────────────────
 
 @app.get("/health")
@@ -224,11 +204,14 @@ async def analyze(
 
     The orchestrator looks up the registration for ``payload.repo`` in the
     platform database so it can use the correct PAT and Azure workspace
-    config.  Falls back to global ``GH_PAT`` env var for backward compat.
+    config.  Returns 404 if no active registration is found.
     """
     repo_ctx = await _lookup_repo_context(payload.repo)
     if repo_ctx is None:
-        repo_ctx = _build_fallback_context(payload.repo)
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active registration found for '{payload.repo}'. Register via the PRism Setup Platform first.",
+        )
 
     verdict = await orchestrate(payload, repo_ctx=repo_ctx)
 
@@ -248,7 +231,7 @@ async def analyze(
 
 # ── GitHub Webhook ───────────────────────────────────────────────────
 
-_GITHUB_TOKEN: str | None = os.getenv("GH_PAT")
+
 _WEBHOOK_SECRET: str | None = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 
@@ -277,16 +260,14 @@ async def _fetch_pr_details(
     Args:
         repo:      Full repo name (owner/repo).
         pr_number: Pull request number.
-        token:     GitHub PAT to use.  Falls back to the global ``GH_PAT``
-                   env var when ``None``.
+        token:     GitHub PAT to use (from platform registration).
 
     Returns:
         (changed_files, diff)
     """
-    effective_token = token or _GITHUB_TOKEN
     headers: dict[str, str] = {"Accept": "application/vnd.github.v3+json"}
-    if effective_token:
-        headers["Authorization"] = f"Bearer {effective_token}"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     changed_files: list[str] = []
     diff = ""
@@ -360,13 +341,12 @@ async def _post_pr_comment(
     token: str | None = None,
 ) -> None:
     """Post a comment to a GitHub pull request."""
-    effective_token = token or _GITHUB_TOKEN
-    if not effective_token:
+    if not token:
         logger.warning("No GH token available — skipping PR comment post")
         return
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     headers = {
-        "Authorization": f"Bearer {effective_token}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -439,9 +419,10 @@ async def _run_orchestration(
         if repo_ctx is None:
             repo_ctx = await _lookup_repo_context(payload.repo)
         if repo_ctx is None:
-            repo_ctx = _build_fallback_context(payload.repo)
+            logger.warning("No registration for %s — skipping orchestration", payload.repo)
+            return
 
-        token = repo_ctx.gh_token if repo_ctx else None
+        token = repo_ctx.gh_token
 
         if payload.repo and payload.pr_number:
             changed_files, diff = await _fetch_pr_details(
@@ -514,7 +495,10 @@ async def handle_webhook(
     # Resolve repo context so the background task uses the right PAT
     repo_ctx = await _lookup_repo_context(payload.repo)
     if repo_ctx is None:
-        repo_ctx = _build_fallback_context(payload.repo)
+        return JSONResponse(
+            {"status": "rejected", "reason": f"No active registration for '{payload.repo}'"},
+            status_code=404,
+        )
 
     background_tasks.add_task(_run_orchestration, payload, repo_ctx)
     return JSONResponse({"status": "accepted", "pr_number": payload.pr_number}, status_code=202)

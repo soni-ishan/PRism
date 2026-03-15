@@ -24,22 +24,26 @@ param location string = resourceGroup().location
 @description('Container image tag')
 param imageTag string = 'latest'
 
-@description('GitHub Personal Access Token')
-@secure()
-param githubToken string
-
 @description('GitHub Webhook Secret')
 @secure()
 param githubWebhookSecret string = ''
 
-@description('GitHub repository owner')
-param githubRepoOwner string = ''
-
-@description('GitHub repository name')
-param githubRepoName string = ''
-
 @description('Azure OpenAI model deployment name')
 param openAiModelDeployment string = 'gpt-4o'
+
+@description('PostgreSQL admin login')
+param pgAdminLogin string = 'prismadmin'
+
+@description('PostgreSQL admin password')
+@secure()
+param pgAdminPassword string = ''
+
+@description('Encryption key for decrypting PATs from platform DB')
+@secure()
+param encryptionKey string = ''
+
+@description('Agent timeout in seconds (0 = default 60s)')
+param agentTimeoutSeconds int = 60
 
 @description('Tags')
 param tags object = {
@@ -64,18 +68,14 @@ var contentSafetyName = '${namingPrefix}-cs-${uniqueSuffix}'
 var appInsightsName = '${namingPrefix}-appins'
 var keyVaultName = '${projectName}-kv-${uniqueSuffix}'
 var containerAppName = '${namingPrefix}-orchestrator'
+var pgServerName = '${namingPrefix}-pg'
+var pgDatabaseName = 'prism_platform'
 
 var webhookSecretArray = empty(githubWebhookSecret) ? [] : [
   { name: 'github-webhook-secret', value: githubWebhookSecret }
 ]
 var webhookEnvArray = empty(githubWebhookSecret) ? [] : [
   { name: 'GITHUB_WEBHOOK_SECRET', secretRef: 'github-webhook-secret' }
-]
-var ghTokenSecretArray = empty(githubToken) ? [] : [
-  { name: 'github-token', value: githubToken }
-]
-var ghTokenEnvArray = empty(githubToken) ? [] : [
-  { name: 'GH_PAT', secretRef: 'github-token' }
 ]
 
 // ════════════════════════════════════════════════════════════════
@@ -114,6 +114,13 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
+resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' existing = {
+  name: pgServerName
+}
+
+// Construct the database URL for platform registration lookups
+var databaseUrl = empty(pgAdminPassword) ? '' : 'postgresql+asyncpg://${pgAdminLogin}:${uriComponent(pgAdminPassword)}@${pgServer.properties.fullyQualifiedDomainName}:5432/${pgDatabaseName}'
+
 // ════════════════════════════════════════════════════════════════
 // CONTAINER APP
 // ════════════════════════════════════════════════════════════════
@@ -149,7 +156,8 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           { name: 'content-safety-key', value: contentSafety.listKeys().key1 }
           { name: 'search-admin-key', value: search.listAdminKeys().primaryKey }
         ],
-        ghTokenSecretArray,
+        empty(databaseUrl) ? [] : [ { name: 'database-url', value: databaseUrl } ],
+        empty(encryptionKey) ? [] : [ { name: 'encryption-key', value: encryptionKey } ],
         webhookSecretArray
       )
     }
@@ -170,9 +178,31 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
             { name: 'KEY_VAULT_URL', value: keyVault.properties.vaultUri }
             { name: 'AZURE_CLIENT_ID', value: orchestratorIdentity.properties.clientId }
-            { name: 'GITHUB_REPO_OWNER', value: githubRepoOwner }
-            { name: 'GITHUB_REPO_NAME', value: githubRepoName }
-          ], ghTokenEnvArray, webhookEnvArray)
+            { name: 'PRISM_AGENT_TIMEOUT', value: string(agentTimeoutSeconds) }
+          ],
+          empty(databaseUrl) ? [] : [ { name: 'DATABASE_URL', secretRef: 'database-url' } ],
+          empty(encryptionKey) ? [] : [ { name: 'ENCRYPTION_KEY', secretRef: 'encryption-key' } ],
+          webhookEnvArray)
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health'
+                port: 8000
+              }
+              periodSeconds: 30
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8000
+              }
+              periodSeconds: 10
+              failureThreshold: 3
+            }
+          ]
         }
       ]
       scale: {

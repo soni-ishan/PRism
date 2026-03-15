@@ -36,6 +36,7 @@ COPY --from=builder /install /usr/local
 COPY --chown=prism:prism agents/ ./agents/
 COPY --chown=prism:prism foundry/ ./foundry/
 COPY --chown=prism:prism mcp_servers/ ./mcp_servers/
+COPY --chown=prism:prism platform/server/ ./server/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

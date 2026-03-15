@@ -90,6 +90,7 @@ var platformIdentityName = '${namingPrefix}-platform-identity'
 var pgServerName = '${namingPrefix}-pg'
 var pgDatabaseName = 'prism_platform'
 var containerAppName = '${namingPrefix}-platform'
+var platformFqdn = '${containerAppName}.${containerAppEnv.properties.defaultDomain}'
 
 // ════════════════════════════════════════════════════════════════
 // EXISTING RESOURCES (created by infra.bicep)
@@ -135,7 +136,7 @@ resource platformApp 'Microsoft.App/containerApps@2023-05-01' = {
         transport: 'auto'
         allowInsecure: false
         corsPolicy: {
-          allowedOrigins: empty(platformOrigin) ? [ '*' ] : [ platformOrigin ]
+          allowedOrigins: empty(platformOrigin) ? [ 'https://${platformFqdn}' ] : [ platformOrigin, 'https://${platformFqdn}' ]
           allowedMethods: [ 'GET', 'POST', 'PUT', 'DELETE', 'OPTIONS' ]
           allowedHeaders: [ '*' ]
         }
@@ -174,6 +175,27 @@ resource platformApp 'Microsoft.App/containerApps@2023-05-01' = {
             { name: 'JWT_SECRET', secretRef: 'jwt-secret' }
             { name: 'ENCRYPTION_KEY', secretRef: 'encryption-key' }
             { name: 'AZURE_CLIENT_ID', value: platformIdentity.properties.clientId }
+            { name: 'PLATFORM_CONFIG_PATH', value: '/tmp/prism_workspace_config.json' }
+          ]
+          probes: [
+            {
+              type: 'Liveness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+              }
+              periodSeconds: 30
+              failureThreshold: 3
+            }
+            {
+              type: 'Readiness'
+              httpGet: {
+                path: '/health'
+                port: 8080
+              }
+              periodSeconds: 10
+              failureThreshold: 3
+            }
           ]
         }
       ]

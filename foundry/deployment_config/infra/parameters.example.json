@@ -5,7 +5,6 @@
     "projectName":          { "value": "prism" },
     "environment":          { "value": "dev" },
     "location":             { "value": "eastus2" },
-    "githubToken":          { "value": "<REPLACE-github-pat>" },
     "githubWebhookSecret":  { "value": "" },
     "openAiModelDeployment": { "value": "gpt-4o" },
     "openAiModelVersion":   { "value": "2024-11-20" },
