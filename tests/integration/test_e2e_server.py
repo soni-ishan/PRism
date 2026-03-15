@@ -42,7 +42,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agents.orchestrator.server import USAGE_TRACKER, app
+from agents.orchestrator.server import FREE_TIER_LIMIT, USAGE_TRACKER, app
 from agents.shared.data_contract import AgentResult, VerdictReport
 
 
@@ -160,10 +160,10 @@ class TestAnalyzeEndpoint:
         assert resp.status_code == 400
         assert "X-Client-ID" in resp.json()["detail"]
 
-    def test_freemium_limit_blocks_after_5_requests(self, client, azure_stub, no_llm):
+    def test_freemium_limit_blocks_after_free_tier_requests(self, client, azure_stub, no_llm):
         brief_patch, playbook_patch = _mock_llm()
         with brief_patch, playbook_patch:
-            for i in range(5):
+            for i in range(FREE_TIER_LIMIT):
                 r = client.post(
                     "/analyze",
                     json={**_SAFE_PAYLOAD, "pr_number": 100 + i},
@@ -171,7 +171,7 @@ class TestAnalyzeEndpoint:
                 )
                 assert r.status_code == 200, f"Request {i+1} should succeed"
 
-        # 6th request must be rejected
+        # Request beyond the limit must be rejected
         resp = client.post(
             "/analyze",
             json={**_SAFE_PAYLOAD, "pr_number": 200},
@@ -184,7 +184,7 @@ class TestAnalyzeEndpoint:
         brief_patch, playbook_patch = _mock_llm()
         with brief_patch, playbook_patch:
             # Exhaust limit for client-A
-            for i in range(5):
+            for i in range(FREE_TIER_LIMIT):
                 client.post(
                     "/analyze",
                     json={**_SAFE_PAYLOAD, "pr_number": i},
