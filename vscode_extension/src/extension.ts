@@ -1,7 +1,8 @@
 /**
  * PRism VS Code Extension — Entry Point
  * ======================================
- * Registers the sidebar webview, commands, and auto-refresh polling.
+ * Registers the sidebar webview and commands.
+ * Analysis runs once on startup and again after every git commit.
  *
  * Adapted from SnipSage extension patterns (same author).
  */
@@ -9,15 +10,13 @@
 import * as vscode from "vscode";
 
 import { SidebarProvider } from "./sidebarProvider";
-import { v4 as uuidv4 } from "uuid";
-
-let pollTimer: ReturnType<typeof setInterval> | undefined;
+import * as crypto from "crypto";
 
 export function activate(context: vscode.ExtensionContext) {
   // 1. Get or generate a unique ID for this user's machine
   let clientId = context.globalState.get<string>('prism.clientId');
   if (!clientId) {
-    clientId = uuidv4();
+    clientId = crypto.randomUUID();
     context.globalState.update('prism.clientId', clientId);
   }
 
@@ -48,36 +47,30 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // ── Auto-refresh polling ───────────────────────────────────────
-  const config = vscode.workspace.getConfiguration("prism");
-  if (config.get<boolean>("autoRefresh", true)) {
-    const intervalSec = config.get<number>("refreshIntervalSeconds", 30);
-    pollTimer = setInterval(() => {
-      sidebarProvider.refresh();
-    }, intervalSec * 1000);
-  }
+  // ── Commit-triggered refresh ───────────────────────────────────
+  // Re-analyze automatically after every git commit; no time-based polling.
+  const gitExtension = vscode.extensions.getExtension<any>('vscode.git');
+  if (gitExtension) {
+    const registerRepoWatcher = (gitApi: any) => {
+      const watchRepo = (repo: any) => {
+        context.subscriptions.push(
+          repo.onDidCommit(() => sidebarProvider.refresh())
+        );
+      };
+      (gitApi.repositories ?? []).forEach(watchRepo);
+      context.subscriptions.push(gitApi.onDidOpenRepository(watchRepo));
+    };
 
-  // Re-read config on change
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("prism")) {
-        if (pollTimer) {
-          clearInterval(pollTimer);
-          pollTimer = undefined;
-        }
-        const cfg = vscode.workspace.getConfiguration("prism");
-        if (cfg.get<boolean>("autoRefresh", true)) {
-          const sec = cfg.get<number>("refreshIntervalSeconds", 30);
-          pollTimer = setInterval(() => sidebarProvider.refresh(), sec * 1000);
-        }
-      }
-    })
-  );
+    if (gitExtension.isActive) {
+      registerRepoWatcher(gitExtension.exports.getAPI(1));
+    } else {
+      gitExtension.activate().then(() =>
+        registerRepoWatcher(gitExtension.exports.getAPI(1))
+      );
+    }
+  }
 }
 
 export function deactivate() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = undefined;
-  }
+  // nothing to clean up
 }

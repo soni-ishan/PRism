@@ -1,9 +1,9 @@
 {
   "name": "prism-risk-gate",
-  "displayName": "PRism — Deployment Risk Intelligence",
+  "displayName": "PRism - Deployment Risk Intelligence",
   "description": "AI-powered pre-deployment risk gate. Shows a Deployment Confidence Score, risk findings, and rollback playbooks right in your VS Code sidebar.",
-  "version": "0.1.0",
-  "publisher": "team-prism",
+  "version": "0.1.6",
+  "publisher": "thegooddatalab",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -15,7 +15,7 @@
     "Other",
     "Testing"
   ],
-  "icon": "media/prism-icon.svg",
+  "icon": "media/prism-icon.png",
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -65,15 +65,10 @@
           "default": "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
           "description": "URL of the PRism FastAPI backend server.  Defaults to the hosted PRism instance — no setup needed."
         },
-        "prism.autoRefresh": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically poll and refresh the sidebar at a fixed interval."
-        },
-        "prism.refreshIntervalSeconds": {
-          "type": "number",
-          "default": 30,
-          "description": "Polling interval (in seconds) for auto-refresh."
+        "prism.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional GitHub Personal Access Token (PAT) with 'repo' scope. If not set, PRism uses VS Code's built-in GitHub authentication. Used to fetch the existing PR analysis comment so the sidebar matches the PR comment exactly."
         }
       }
     }
@@ -86,14 +81,13 @@
   },
   "devDependencies": {
     "@types/node": "18.x",
-    "@types/uuid": "^10.0.0",
     "@types/vscode": "1.85.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/vsce": "^3.7.1",
     "eslint": "^8.56.0",
+    "sharp": "^0.34.5",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "uuid": "^9.0.0"
-  }
+  "dependencies": {}
 }

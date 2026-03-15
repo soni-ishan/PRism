@@ -23,6 +23,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from email.utils import parsedate_to_datetime
 import time
 from datetime import datetime, timezone
 
@@ -89,7 +90,11 @@ app = FastAPI(
 # Tracks: { "client_uuid": {"count": int, "first_seen": float} }
 # Entries older than _USAGE_TTL_SECONDS are evicted to bound memory growth.
 USAGE_TRACKER: dict = {}
-FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+# Read the limit from the environment so self-hosted instances can disable
+# rate limiting entirely by setting PRISM_FREE_TIER_LIMIT=0.
+# Default 500: generous for hackathon judges / demo use (~$1 of Azure credits per client).
+FREE_TIER_LIMIT: int = int(os.environ.get("PRISM_FREE_TIER_LIMIT", "500"))
+_RATE_LIMITING_DISABLED: bool = FREE_TIER_LIMIT == 0
 _USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30-day rolling window
 
 from typing import Optional
@@ -106,6 +111,8 @@ def _evict_expired_usage() -> None:
 def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
     if not x_client_id:
         raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    if _RATE_LIMITING_DISABLED:
+        return x_client_id  # self-hosted instance — no usage cap
     _evict_expired_usage()
     entry = USAGE_TRACKER.get(x_client_id)
     if entry is None:
@@ -190,6 +197,24 @@ async def _lookup_repo_context(full_repo: str) -> RepoContext | None:
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "prism"}
+
+
+# ── Freemium usage stats ──────────────────────────────────────────────
+
+@app.get("/usage")
+async def get_usage(client_id: str = Depends(_require_client_id)):
+    """Return the current freemium credit usage for the caller without consuming a credit."""
+    if _RATE_LIMITING_DISABLED:
+        return {"unlimited": True, "credits_used": 0, "credits_limit": None, "credits_remaining": None}
+    _evict_expired_usage()
+    used = USAGE_TRACKER.get(client_id, {}).get("count", 0)
+    remaining = max(0, FREE_TIER_LIMIT - used)
+    return {
+        "unlimited": False,
+        "credits_used": used,
+        "credits_limit": FREE_TIER_LIMIT,
+        "credits_remaining": remaining,
+    }
 
 
 # ── Manual analysis trigger ──────────────────────────────────────────
@@ -313,6 +338,35 @@ async def _fetch_pr_details(
     return changed_files, diff
 
 
+async def _fetch_commit_timestamp(repo: str, sha: str) -> "datetime | None":
+    """Fetch the git commit author date with original timezone offset.
+
+    Uses ``GET /repos/{repo}/commits/{sha}`` with ``Accept: …patch`` which
+    returns the raw ``format-patch`` output.  The ``Date:`` header in that
+    output preserves the committer's original timezone offset (RFC 2822),
+    e.g. ``Date: Tue, 11 Mar 2026 01:37:25 -0500``.
+
+    The JSON endpoints (both ``/commits`` and ``/git/commits``) normalise
+    all timestamps to UTC, which is why we use the patch format instead.
+    """
+    headers: dict[str, str] = {"Accept": "application/vnd.github.patch"}
+    if _GITHUB_TOKEN:
+        headers["Authorization"] = f"Bearer {_GITHUB_TOKEN}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/commits/{sha}",
+                headers=headers,
+            )
+            if resp.is_success:
+                match = re.search(r'^Date:\s+(.+)$', resp.text, re.MULTILINE)
+                if match:
+                    return parsedate_to_datetime(match.group(1).strip())
+    except Exception:
+        pass
+    return None
+
+
 def _parse_github_webhook(body: dict) -> PRPayload | None:
     """Extract a ``PRPayload`` from a raw GitHub PR webhook body.
 
@@ -331,6 +385,7 @@ def _parse_github_webhook(body: dict) -> PRPayload | None:
         changed_files=[],  # Populated later via API
         diff="",  # Populated later via API
         timestamp=datetime.now(timezone.utc),
+        head_sha=pr.get("head", {}).get("sha"),
     )
 
 
