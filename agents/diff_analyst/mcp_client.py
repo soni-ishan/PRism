@@ -48,7 +48,6 @@ async def fetch_pr_diff_async(owner: str, repo: str, pr_number: int) -> str:
     # Provide token under both names to reduce surprises across environments.
     server_env = {
         "GH_PAT": token,
-        "GITHUB_PERSONAL_ACCESS_TOKEN": token,
         "GITHUB_READ_ONLY": "1",
     }
 

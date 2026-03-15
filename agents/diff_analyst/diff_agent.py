@@ -17,7 +17,7 @@ AGENT_NAME = "Diff Analyst"
 # -----------------------------
 # Heuristic patterns (fast scan)
 # -----------------------------
-
+SECRET="MY API KEY"
 SECRET_PATTERNS = [
     (re.compile(r"-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----"), "Private key material"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS access key id pattern"),
