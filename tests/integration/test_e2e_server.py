@@ -42,7 +42,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agents.orchestrator.server import USAGE_TRACKER, app
+from agents.orchestrator.server import USAGE_TRACKER, _RATE_LIMITING_DISABLED, app
 from agents.shared.data_contract import AgentResult, VerdictReport
 
 
@@ -160,10 +160,12 @@ class TestAnalyzeEndpoint:
         assert resp.status_code == 400
         assert "X-Client-ID" in resp.json()["detail"]
 
-    def test_freemium_limit_blocks_after_5_requests(self, client, azure_stub, no_llm):
+    @pytest.mark.skipif(_RATE_LIMITING_DISABLED, reason="Rate limiting disabled on this instance (PRISM_FREE_TIER_LIMIT=0)")
+    def test_freemium_limit_blocks_after_free_tier_requests(self, client, azure_stub, no_llm):
+        _TEST_LIMIT = 3  # small value so the test stays fast regardless of the real limit
         brief_patch, playbook_patch = _mock_llm()
-        with brief_patch, playbook_patch:
-            for i in range(5):
+        with patch("agents.orchestrator.server.FREE_TIER_LIMIT", _TEST_LIMIT), brief_patch, playbook_patch:
+            for i in range(_TEST_LIMIT):
                 r = client.post(
                     "/analyze",
                     json={**_SAFE_PAYLOAD, "pr_number": 100 + i},
@@ -171,20 +173,22 @@ class TestAnalyzeEndpoint:
                 )
                 assert r.status_code == 200, f"Request {i+1} should succeed"
 
-        # 6th request must be rejected
-        resp = client.post(
-            "/analyze",
-            json={**_SAFE_PAYLOAD, "pr_number": 200},
-            headers={"X-Client-ID": "trial-client-xyz"},
-        )
+            # Request beyond the limit must be rejected
+            resp = client.post(
+                "/analyze",
+                json={**_SAFE_PAYLOAD, "pr_number": 200},
+                headers={"X-Client-ID": "trial-client-xyz"},
+            )
         assert resp.status_code == 402
         assert "Free trial exhausted" in resp.json()["detail"]
 
+    @pytest.mark.skipif(_RATE_LIMITING_DISABLED, reason="Rate limiting disabled on this instance (PRISM_FREE_TIER_LIMIT=0)")
     def test_different_client_ids_have_independent_counters(self, client, azure_stub, no_llm):
+        _TEST_LIMIT = 3
         brief_patch, playbook_patch = _mock_llm()
-        with brief_patch, playbook_patch:
+        with patch("agents.orchestrator.server.FREE_TIER_LIMIT", _TEST_LIMIT), brief_patch, playbook_patch:
             # Exhaust limit for client-A
-            for i in range(5):
+            for i in range(_TEST_LIMIT):
                 client.post(
                     "/analyze",
                     json={**_SAFE_PAYLOAD, "pr_number": i},

@@ -73,7 +73,11 @@ app = FastAPI(
 # Tracks: { "client_uuid": {"count": int, "first_seen": float} }
 # Entries older than _USAGE_TTL_SECONDS are evicted to bound memory growth.
 USAGE_TRACKER: dict = {}
-FREE_TIER_LIMIT = 5  # 5 PR evaluations ~= $1 of Azure OpenAI credits
+# Read the limit from the environment so self-hosted instances can disable
+# rate limiting entirely by setting PRISM_FREE_TIER_LIMIT=0.
+# Default 500: generous for hackathon judges / demo use (~$1 of Azure credits per client).
+FREE_TIER_LIMIT: int = int(os.environ.get("PRISM_FREE_TIER_LIMIT", "500"))
+_RATE_LIMITING_DISABLED: bool = FREE_TIER_LIMIT == 0
 _USAGE_TTL_SECONDS = 30 * 24 * 60 * 60  # 30-day rolling window
 
 from typing import Optional
@@ -90,6 +94,8 @@ def _evict_expired_usage() -> None:
 def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
     if not x_client_id:
         raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    if _RATE_LIMITING_DISABLED:
+        return x_client_id  # self-hosted instance — no usage cap
     _evict_expired_usage()
     entry = USAGE_TRACKER.get(x_client_id)
     if entry is None:
@@ -103,11 +109,36 @@ def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
     USAGE_TRACKER[x_client_id] = entry
     return x_client_id
 
+def _require_client_id(x_client_id: Optional[str] = Header(None)) -> str:
+    """Validate X-Client-ID header without enforcing the usage limit."""
+    if not x_client_id:
+        raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
+    return x_client_id
+
+
 # ── Healthcheck ──────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "prism"}
+
+
+# ── Freemium usage stats ──────────────────────────────────────────────
+
+@app.get("/usage")
+async def get_usage(client_id: str = Depends(_require_client_id)):
+    """Return the current freemium credit usage for the caller without consuming a credit."""
+    if _RATE_LIMITING_DISABLED:
+        return {"unlimited": True, "credits_used": 0, "credits_limit": None, "credits_remaining": None}
+    _evict_expired_usage()
+    used = USAGE_TRACKER.get(client_id, {}).get("count", 0)
+    remaining = max(0, FREE_TIER_LIMIT - used)
+    return {
+        "unlimited": False,
+        "credits_used": used,
+        "credits_limit": FREE_TIER_LIMIT,
+        "credits_remaining": remaining,
+    }
 
 
 # ── Manual analysis trigger ──────────────────────────────────────────
