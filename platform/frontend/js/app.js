@@ -59,7 +59,7 @@ function startNewRegistration() {
   state.currentStep = 1;
   state.currentRegistrationId = null;
   state.github = { connected: false, token: null, installedRepo: null };
-  state.azure = { connected: false, token: null, subscriptionId: null, workspaceId: null, workspaceName: null, customerId: null, envVars: null };
+  state.azure = { connected: false, skipped: false, token: null, subscriptionId: null, workspaceId: null, workspaceName: null, customerId: null, envVars: null };
 
   showWizard();
   const patInput = document.getElementById('inputPAT');
@@ -83,6 +83,7 @@ function viewRegistration(id) {
   };
   state.azure = {
     connected: !!reg.azure_workspace_name,
+    skipped: !reg.azure_workspace_name,
     token: null,
     subscriptionId: reg.azure_subscription_id,
     workspaceId: reg.azure_workspace_id,
@@ -118,20 +119,30 @@ function renderStep(n) {
   const el = document.getElementById(`step-${n}`);
   if (el) el.classList.remove('hidden');
 
+  const azureWarning = !!(state.azure.skipped && !state.azure.connected);
+
   for (let i = 1; i <= 3; i++) {
     const pill = document.getElementById(`pill-${i}`);
     if (!pill) continue;
-    pill.classList.remove('active', 'done');
-    if (i < n) pill.classList.add('done');
+    pill.classList.remove('active', 'done', 'warning');
+    if (i < n) {
+      if (i === 2 && azureWarning) pill.classList.add('warning');
+      else pill.classList.add('done');
+    }
     if (i === n) pill.classList.add('active');
+    if (i === 2 && n === 2 && azureWarning) pill.classList.add('warning');
   }
 
   setStepIcon(1, state.github.connected ? '✓' : '1');
-  setStepIcon(2, state.azure.connected  ? '✓' : '2');
+  setStepIcon(2, state.azure.connected ? '✓' : (azureWarning ? '!' : '2'));
   setStepIcon(3, '3');
 
   const pct = { 1: 16, 2: 50, 3: 100 };
-  document.getElementById('progressBar').style.width = (pct[n] || 0) + '%';
+  const progressBar = document.getElementById('progressBar');
+  if (progressBar) {
+    progressBar.style.width = (pct[n] || 0) + '%';
+    progressBar.classList.toggle('warning', azureWarning && n >= 2);
+  }
 
   if (n === 1) renderStep1();
   if (n === 2) renderStep2();
@@ -209,6 +220,11 @@ function renderStep2() {
     hide('azure-picker-panel');
     document.getElementById('azure-connected-detail').textContent =
       `Connected to ${state.azure.workspaceName || 'your workspace'} successfully.`;
+  } else if (state.azure.skipped) {
+    status.textContent = '⚠';
+    show('azure-auth-actions');
+    hide('azure-picker-panel');
+    hide('azure-connected-panel');
   } else if (state.azure.token) {
     status.textContent = '';
     hide('azure-auth-actions');
@@ -223,11 +239,24 @@ function renderStep2() {
   }
 }
 
+function skipAzureSetup() {
+  state.azure.connected = false;
+  state.azure.skipped = true;
+  state.azure.token = null;
+  state.azure.subscriptionId = null;
+  state.azure.workspaceId = null;
+  state.azure.workspaceName = null;
+  state.azure.customerId = null;
+  state.azure.envVars = null;
+  goToStep(3);
+}
+
 async function startAzureConnect() {
   const btn = document.getElementById('btnAzureSignIn');
   btn.disabled = true;
   btn.textContent = 'Redirecting…';
   try {
+    state.azure.skipped = false;
     sessionStorage.setItem('prism_registrationId', state.currentRegistrationId || '');
     sessionStorage.setItem('prism_githubRepo', state.github.installedRepo || '');
     sessionStorage.setItem('prism_githubConnected', state.github.connected ? '1' : '');
@@ -374,6 +403,7 @@ async function connectWorkspace() {
     if (!resp.ok) throw new Error(data.detail || JSON.stringify(data));
 
     state.azure.connected    = true;
+    state.azure.skipped      = false;
     state.azure.workspaceId  = ws.id;
     state.azure.workspaceName = ws.name;
     state.azure.customerId   = data.config?.customer_id;
@@ -412,6 +442,30 @@ async function connectWorkspace() {
 
 // ── Step 3: Complete ───────────────────────────────────────────────────────
 function renderStep3() {
+  const azureSkipped = !state.azure.connected && !!state.azure.skipped;
+  const finishCard = document.querySelector('#step-3 .step-card-finish');
+  const finishTitle = document.getElementById('step3-title');
+  const finishSubtitle = document.getElementById('step3-subtitle');
+  const finishCircle = document.getElementById('finish-check-circle');
+  const finishMark = document.getElementById('finish-check-mark');
+
+  if (finishCard) finishCard.classList.toggle('warning', azureSkipped);
+  if (finishTitle) {
+    finishTitle.textContent = azureSkipped ? 'Setup Complete with Limited History' : 'Setup Complete';
+  }
+  if (finishSubtitle) {
+    finishSubtitle.textContent = azureSkipped
+      ? 'Azure setup was skipped. History Agent will have no incident data until you connect a workspace.'
+      : 'Your PRism registration is configured and ready to go.';
+  }
+  if (finishCircle) {
+    finishCircle.setAttribute('stroke', azureSkipped ? '#d29922' : '#238636');
+    finishCircle.setAttribute('fill', azureSkipped ? 'rgba(187,128,9,0.14)' : 'rgba(46,160,67,0.1)');
+  }
+  if (finishMark) {
+    finishMark.setAttribute('stroke', azureSkipped ? '#f2cc60' : '#3fb950');
+  }
+
   const ghDetail = document.getElementById('summary-github-detail');
   const ghCard = document.getElementById('finish-github-card');
   if (state.github.connected) {

@@ -19,6 +19,7 @@ const state = {
   },
   azure: {
     connected: false,
+    skipped: false,
     token: null,
     subscriptionId: null,
     workspaceId: null,

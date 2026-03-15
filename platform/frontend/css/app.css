@@ -13,6 +13,10 @@
   border-radius: 0 2px 2px 0;
 }
 
+.progress-bar.warning {
+  background: linear-gradient(90deg, #d29922, #e3b341, #f2cc60);
+}
+
 /* ── Step navigation pills ──────────────────────────────────────────────── */
 .steps-nav {
   display: flex;
@@ -67,6 +71,12 @@
   background: var(--brand-green-bg);
 }
 
+.step-pill.warning {
+  border-color: #d29922;
+  color: #f2cc60;
+  background: rgba(187, 128, 9, 0.12);
+}
+
 .step-num {
   width: 24px;
   height: 24px;
@@ -82,6 +92,7 @@
 
 .step-pill.active .step-num { background: var(--brand-purple); color: #fff; }
 .step-pill.done   .step-num { background: var(--brand-green);  color: #fff; }
+.step-pill.warning .step-num { background: #d29922; color: #0d1117; }
 
 /* ── Wizard card ────────────────────────────────────────────────────────── */
 .wizard-wrap {
@@ -317,6 +328,10 @@
   color: var(--text-muted, #666);
   margin-top: 0;
   margin-bottom: 0;
+}
+
+.warning-hint {
+  color: #e3b341;
 }
 
 /* ── Tile picker (subscription & workspace) ─────────────────────────────── */
@@ -561,6 +576,12 @@
   border-bottom: 1px solid var(--border);
 }
 
+.step-card-finish.warning .finish-hero {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(187,128,9,.14) 0%, transparent 60%),
+    var(--surface-3);
+}
+
 .finish-checkmark {
   margin-bottom: 20px;
   animation: scaleIn .5s cubic-bezier(.4,0,.2,1);
@@ -575,6 +596,10 @@
 .finish-subtitle {
   color: var(--text-secondary);
   font-size: .95rem;
+}
+
+.step-card-finish.warning .finish-subtitle {
+  color: #f2cc60;
 }
 
 /* ── Finish summary cards ───────────────────────────────────────────────── */
