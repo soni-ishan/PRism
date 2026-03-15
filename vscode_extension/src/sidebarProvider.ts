@@ -92,6 +92,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _cachedBranch: string | undefined;
   private _cachedRepo: string | null = null;
   private clientId: string;
+  private _dataSource: string = '';
 
   constructor(private readonly _extensionUri: vscode.Uri, clientId: string) {
     this.clientId = clientId;
@@ -180,31 +181,46 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Fetch a VerdictReport from the PRism backend `/analyze` endpoint. */
   private async _fetchVerdict(): Promise<VerdictReport | null> {
-    const config = vscode.workspace.getConfiguration("prism");
-    const baseUrl = config.get<string>("serverUrl", "http://localhost:8000");
-
-    // Use cached git info (populated by refresh())
     const branch = this._cachedBranch;
-    const prNumber = this._extractPrNumber(branch);
     const repo = this._cachedRepo;
 
-    // Build a timezone-aware ISO timestamp so the Timing Agent evaluates
-    // risk in the developer's local time, not server UTC.
-    const now = new Date();
-    const offsetMins = -now.getTimezoneOffset(); // minutes ahead of UTC
-    const sign = offsetMins >= 0 ? "+" : "-";
-    const pad2 = (n: number) => String(Math.abs(n)).padStart(2, "0");
-    const localIso =
-      `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}` +
-      `T${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}` +
-      `${sign}${pad2(Math.floor(Math.abs(offsetMins) / 60))}:${pad2(Math.abs(offsetMins) % 60)}`;
+    // ── Path 1: fetch the existing PRism review comment from GitHub ──────
+    // This is free (no /analyze call), always matches the PR comment exactly,
+    // and requires the branch to have an open PR and a GitHub token.
+    if (repo && branch) {
+      const token = await this._getGitHubToken();
+      if (token) {
+        const pr = await this._findOpenPR(repo, branch, token);
+        if (pr) {
+          const verdict = await this._fetchPRReview(repo, pr.number, token);
+          if (verdict) {
+            this._dataSource = `PR #${pr.number}`;
+            return verdict;
+          }
+        }
+      }
+    }
+
+    // ── Path 2: call /analyze with local git history (fallback) ──────────
+    // Used when there is no open PR, no GitHub token, or no PRism review yet.
+    const config = vscode.workspace.getConfiguration("prism");
+    const baseUrl = config.get<string>("serverUrl", "http://localhost:8000");
+    const prNumber = this._extractPrNumber(branch);
+
+    const [changedFiles, diff, commitTimestamp] = await Promise.all([
+      this._getChangedFiles(),
+      this._getDiff(),
+      this._getCommitTimestamp(),
+    ]);
+
+    this._dataSource = 'local commit';
 
     const payload = {
       pr_number: prNumber ?? 0,
       repo: repo ?? "unknown/repo",
-      changed_files: [],
-      diff: "",
-      timestamp: localIso,
+      changed_files: changedFiles,
+      diff: diff,
+      timestamp: commitTimestamp ?? this._localIso(),
     };
 
     try {
@@ -240,6 +256,169 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       console.debug("PRism backend unreachable, using mock data:", err);
       return null;
     }
+  }
+
+  // ── GitHub PR review helpers ──────────────────────────────────────
+
+  /**
+   * Get a GitHub access token.
+   * Prefers VS Code's built-in GitHub auth (silent, no prompt).
+   * Falls back to the `prism.githubToken` PAT setting.
+   */
+  private async _getGitHubToken(): Promise<string | null> {
+    try {
+      const session = await vscode.authentication.getSession(
+        'github', ['repo'], { createIfNone: false }
+      );
+      if (session?.accessToken) { return session.accessToken; }
+    } catch { /* auth provider not available */ }
+
+    const pat = vscode.workspace.getConfiguration("prism").get<string>("githubToken");
+    return pat || null;
+  }
+
+  /** Find the open PR for the given branch using the GitHub API. */
+  private async _findOpenPR(repo: string, branch: string, token: string): Promise<{ number: number } | null> {
+    const owner = repo.split('/')[0];
+    try {
+      const resp = await fetch(
+        `https://api.github.com/repos/${repo}/pulls?state=open&head=${encodeURIComponent(owner + ':' + branch)}&per_page=1`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } }
+      );
+      if (!resp.ok) { return null; }
+      const prs = (await resp.json()) as any[];
+      return prs[0] ? { number: prs[0].number } : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Fetch the most recent PRism review comment for the PR and parse it.
+   * PRism comments are posted via the GitHub Pulls Reviews API so they appear
+   * as reviews of type COMMENT with a body starting with "## PRism Deployment Risk Analysis".
+   */
+  private async _fetchPRReview(repo: string, prNumber: number, token: string): Promise<VerdictReport | null> {
+    try {
+      const resp = await fetch(
+        `https://api.github.com/repos/${repo}/pulls/${prNumber}/reviews?per_page=100`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } }
+      );
+      if (!resp.ok) { return null; }
+      const reviews = (await resp.json()) as any[];
+
+      // Find the most recent PRism review
+      const prismReview = reviews
+        .filter(r => typeof r.body === 'string' && r.body.includes('## PRism Deployment Risk Analysis'))
+        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime())[0];
+
+      return prismReview ? this._parsePRComment(prismReview.body) : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Parse a PRism PR review comment body into a VerdictReport.
+   *
+   * Comment format (from prism-gate.yml):
+   *   **Confidence Score:** `87 / 100`
+   *   **Verdict:** ✅ GREENLIGHT  or  🚫 BLOCKED
+   *   | Agent | Status | Risk | Key Finding |
+   *   | Diff Analyst | ✅ pass | 5 | ... |
+   *   <details>...<summary>📋 Full Risk Brief</summary>brief text</details>
+   */
+  private _parsePRComment(body: string): VerdictReport | null {
+    const scoreMatch = body.match(/`(\d+)\s*\/\s*100`/);
+    if (!scoreMatch) { return null; }
+    const confidence_score = parseInt(scoreMatch[1], 10);
+
+    const decision: 'greenlight' | 'blocked' =
+      body.includes('GREENLIGHT') ? 'greenlight' : 'blocked';
+
+    // Each data row: | agent | emoji status | risk_modifier | finding |
+    const validStatuses = new Set(['pass', 'warning', 'critical']);
+    const agentResults: AgentResult[] = [];
+    const rowRegex = /\|\s*([^|]+?)\s*\|\s*\S+\s+(\w+)\s*\|\s*(\d+)\s*\|\s*([^|]*?)\s*\|/g;
+    let m: RegExpExecArray | null;
+    while ((m = rowRegex.exec(body)) !== null) {
+      const status = m[2].trim().toLowerCase();
+      if (!validStatuses.has(status)) { continue; }
+      agentResults.push({
+        agent_name: m[1].trim(),
+        status: status as 'pass' | 'warning' | 'critical',
+        risk_score_modifier: parseInt(m[3], 10),
+        findings: m[4].trim() ? [m[4].trim()] : [],
+        recommended_action: '',
+      });
+    }
+
+    const briefMatch = body.match(/<\/summary>([\s\S]*?)<\/details>/);
+    const risk_brief = briefMatch ? briefMatch[1].trim() : '';
+
+    return { confidence_score, decision, risk_brief, rollback_playbook: null, agent_results: agentResults };
+  }
+
+  /** ISO-8601 timestamp in the local timezone (fallback when no commit exists). */
+  private _localIso(): string {
+    const now = new Date();
+    const offsetMins = -now.getTimezoneOffset();
+    const sign = offsetMins >= 0 ? "+" : "-";
+    const pad2 = (n: number) => String(Math.abs(n)).padStart(2, "0");
+    return (
+      `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}` +
+      `T${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}` +
+      `${sign}${pad2(Math.floor(Math.abs(offsetMins) / 60))}:${pad2(Math.abs(offsetMins) % 60)}`
+    );
+  }
+
+  /** Files changed in the latest commit (`git diff-tree --no-commit-id -r --name-only HEAD`). */
+  private _getChangedFiles(): Promise<string[]> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) { return Promise.resolve([]); }
+    return new Promise((resolve) => {
+      cp.execFile(
+        "git",
+        ["diff-tree", "--no-commit-id", "-r", "--name-only", "HEAD"],
+        { cwd: workspaceFolder.uri.fsPath, encoding: "utf-8" },
+        (err, stdout) => {
+          resolve(err ? [] : stdout.trim().split("\n").filter(Boolean));
+        }
+      );
+    });
+  }
+
+  /**
+   * Unified diff of the latest commit (`git diff HEAD~1 HEAD`).
+   * Truncated to 20 KB to keep the request payload manageable.
+   */
+  private _getDiff(): Promise<string> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) { return Promise.resolve(""); }
+    return new Promise((resolve) => {
+      cp.execFile(
+        "git",
+        ["diff", "HEAD~1", "HEAD"],
+        { cwd: workspaceFolder.uri.fsPath, encoding: "utf-8" },
+        (err, stdout) => {
+          if (err) { resolve(""); return; }
+          const MAX = 20_000;
+          resolve(stdout.length > MAX ? stdout.slice(0, MAX) + "\n[diff truncated]" : stdout);
+        }
+      );
+    });
+  }
+
+  /** Author timestamp of the latest commit in ISO-8601 format (`git log -1 --format=%aI`). */
+  private _getCommitTimestamp(): Promise<string | null> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) { return Promise.resolve(null); }
+    return new Promise((resolve) => {
+      cp.execFile(
+        "git",
+        ["log", "-1", "--format=%aI"],
+        { cwd: workspaceFolder.uri.fsPath, encoding: "utf-8" },
+        (err, stdout) => {
+          resolve(err ? null : stdout.trim() || null);
+        }
+      );
+    });
   }
 
   /** Try to extract a PR number from a branch name like `feature/123-foo` or `pr/42`. */
@@ -500,6 +679,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 <body>
   <div class="branch-info">
     Branch: <strong>${this._escapeHtml(this._cachedBranch ?? "unknown")}</strong>
+    ${this._dataSource ? `&nbsp;·&nbsp; <span style="opacity:0.7">${this._escapeHtml(this._dataSource)}</span>` : ''}
   </div>
 
   <!-- Score Gauge -->

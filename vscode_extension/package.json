@@ -2,7 +2,7 @@
   "name": "prism-risk-gate",
   "displayName": "PRism - Deployment Risk Intelligence",
   "description": "AI-powered pre-deployment risk gate. Shows a Deployment Confidence Score, risk findings, and rollback playbooks right in your VS Code sidebar.",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "publisher": "thegooddatalab",
   "engines": {
     "vscode": "^1.85.0"
@@ -65,15 +65,10 @@
           "default": "https://prism-dev-orchestrator.politerock-2dda79e7.eastus2.azurecontainerapps.io",
           "description": "URL of the PRism FastAPI backend server.  Defaults to the hosted PRism instance — no setup needed."
         },
-        "prism.autoRefresh": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically poll and refresh the sidebar at a fixed interval."
-        },
-        "prism.refreshIntervalSeconds": {
-          "type": "number",
-          "default": 30,
-          "description": "Polling interval (in seconds) for auto-refresh."
+        "prism.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "Optional GitHub Personal Access Token (PAT) with 'repo' scope. If not set, PRism uses VS Code's built-in GitHub authentication. Used to fetch the existing PR analysis comment so the sidebar matches the PR comment exactly."
         }
       }
     }
