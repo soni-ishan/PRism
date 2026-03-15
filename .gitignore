@@ -28,6 +28,7 @@ foundry/deployment_config/bicep/parameters.json
 deployment-outputs.json
 deployment-output.json
 params.json
+parameters.json
 
 # IDE
 .vscode/
