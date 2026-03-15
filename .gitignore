@@ -32,6 +32,7 @@ deployment-output.json
 params.json
 *.env.azure
 *.env.platform
+parameters.json
 
 # IDE
 .vscode/
