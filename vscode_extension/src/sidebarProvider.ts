@@ -30,6 +30,13 @@ interface VerdictReport {
   agent_results: AgentResult[];
 }
 
+interface UsageInfo {
+  unlimited: boolean;
+  credits_used: number;
+  credits_limit: number | null;
+  credits_remaining: number | null;
+}
+
 // ── Mock data for demo / offline mode ───────────────────────────────
 
 const MOCK_VERDICT: VerdictReport = {
@@ -93,6 +100,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _cachedRepo: string | null = null;
   private clientId: string;
   private _dataSource: string = '';
+  private _usageInfo: UsageInfo | null = null;
 
   constructor(private readonly _extensionUri: vscode.Uri, clientId: string) {
     this.clientId = clientId;
@@ -141,10 +149,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._detectRepo(),
     ]);
 
-    const verdict = await this._fetchVerdict();
+    const [verdict, usage] = await Promise.all([
+      this._fetchVerdict(),
+      this._fetchUsage(),
+    ]);
     if (verdict) {
       this._latestVerdict = verdict;
     }
+    this._usageInfo = usage;
     this._render();
   }
 
@@ -254,6 +266,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     } catch (err) {
       // Backend unreachable — use mock data silently
       console.debug("PRism backend unreachable, using mock data:", err);
+      return null;
+    }
+  }
+
+  /** Fetch the current freemium credit usage from the backend `/usage` endpoint. */
+  private async _fetchUsage(): Promise<UsageInfo | null> {
+    const config = vscode.workspace.getConfiguration("prism");
+    const baseUrl = config.get<string>("serverUrl", "http://localhost:8000");
+    try {
+      const resp = await fetch(`${baseUrl}/usage`, {
+        headers: { "X-Client-ID": this.clientId },
+      });
+      if (!resp.ok) { return null; }
+      return (await resp.json()) as UsageInfo;
+    } catch {
       return null;
     }
   }
@@ -674,6 +701,43 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       text-align: center;
       margin-bottom: 12px;
     }
+
+    /* ── Trial credit bar ────────────────────── */
+    .trial-bar {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--vscode-editorWidget-border, #333);
+    }
+    .trial-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 5px;
+    }
+    .trial-count {
+      font-weight: 600;
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .trial-track {
+      height: 4px;
+      background: var(--vscode-editorWidget-border, #444);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .trial-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+    .trial-exhausted {
+      font-size: 11px;
+      color: #f44747;
+      text-align: center;
+      padding: 6px 0;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
@@ -705,12 +769,49 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     ${v.rollback_playbook ? '<button class="action-btn secondary" onclick="post(\'showRollback\')">🔙 Rollback Playbook</button>' : ""}
   </div>
 
+  <!-- Trial credit bar -->
+  ${this._buildUsageHtml()}
+
   <script>
     const vscode = acquireVsCodeApi();
     function post(command) { vscode.postMessage({ command }); }
   </script>
 </body>
 </html>`;
+  }
+
+  /** Build the trial credit bar HTML shown at the bottom of the sidebar. */
+  private _buildUsageHtml(): string {
+    const u = this._usageInfo;
+    if (!u) { return ''; }                           // backend unreachable
+    if (u.unlimited) { return ''; }                  // self-hosted / enterprise — no bar needed
+
+    const used = u.credits_used;
+    const limit = u.credits_limit ?? 0;
+    const remaining = u.credits_remaining ?? 0;
+
+    if (limit === 0) { return ''; }
+
+    const pct = Math.min(100, Math.round((used / limit) * 100));
+    const barColor = remaining === 0 ? '#f44747'
+                   : pct >= 80      ? '#cca700'
+                   : '#4ec9b0';
+
+    if (remaining === 0) {
+      return `<div class="trial-bar">
+        <div class="trial-exhausted">Trial exhausted — configure your server URL in settings</div>
+      </div>`;
+    }
+
+    return `<div class="trial-bar">
+      <div class="trial-header">
+        <span>Free Trial</span>
+        <span class="trial-count" style="color:${barColor}">${remaining} / ${limit} credits left</span>
+      </div>
+      <div class="trial-track">
+        <div class="trial-fill" style="width:${pct}%; background:${barColor}"></div>
+      </div>
+    </div>`;
   }
 
   /** Full report panel HTML — richer layout for an editor tab. */

@@ -2,7 +2,7 @@
   "name": "prism-risk-gate",
   "displayName": "PRism - Deployment Risk Intelligence",
   "description": "AI-powered pre-deployment risk gate. Shows a Deployment Confidence Score, risk findings, and rollback playbooks right in your VS Code sidebar.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "thegooddatalab",
   "engines": {
     "vscode": "^1.85.0"
