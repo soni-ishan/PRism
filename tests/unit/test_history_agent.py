@@ -2,15 +2,17 @@
 Tests for the PRism History Agent.
 
 Covers risk-score/status thresholds, file↔incident correlation behavior,
-and recency ordering for incident detail findings.
+recency ordering for incident detail findings, and the public run() entrypoint.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from agents.history_agent.agent import HistoryAgent
+from agents.history_agent.agent import HistoryAgent, run
+from agents.shared.data_contract import AgentResult, RepoContext
 
 
 def _incident(
@@ -132,3 +134,117 @@ class TestHistoryAgentRecencyOrdering:
         assert "Newest" in detail_findings[0]
         assert "2026-02-20" in detail_findings[1]
         assert "Middle" in detail_findings[1]
+
+
+# ── Tests for the public run() orchestrator entrypoint ───────────────
+
+
+def _run_async(coro):
+    """Helper to drive an async coroutine from synchronous test code."""
+    return asyncio.run(coro)
+
+
+class TestRunNoDeploymentConnection:
+    """run() with no repo_ctx creates a disconnected agent and reports clearly."""
+
+    def test_returns_agent_result_type(self):
+        result = _run_async(run(changed_files=["api.py"]))
+        assert isinstance(result, AgentResult)
+
+    def test_agent_name_is_correct(self):
+        result = _run_async(run(changed_files=["api.py"]))
+        assert result.agent_name == "History Agent"
+
+    def test_status_is_pass_when_no_connection(self):
+        result = _run_async(run(changed_files=["api.py"]))
+        assert result.status == "pass"
+
+    def test_risk_score_is_zero_when_no_connection(self):
+        result = _run_async(run(changed_files=["api.py"]))
+        assert result.risk_score_modifier == 0
+
+    def test_findings_mention_no_deployment_connection(self):
+        result = _run_async(run(changed_files=["api.py"]))
+        assert any("deployment connection" in f.lower() for f in result.findings)
+
+    def test_empty_changed_files_returns_pass(self):
+        result = _run_async(run(changed_files=[]))
+        assert result.status == "pass"
+        assert result.risk_score_modifier == 0
+
+    def test_repo_ctx_without_index_acts_as_disconnected(self):
+        ctx = RepoContext(owner="acme", repo="backend")  # no azure_search_index
+        result = _run_async(run(changed_files=["app.py"], repo_ctx=ctx))
+        assert result.status == "pass"
+        assert result.risk_score_modifier == 0
+
+
+class TestRunWithMockedAzure:
+    """run() with a mock AzureMCPServer exercises the full pipeline."""
+
+    def _make_ctx_with_index(self) -> RepoContext:
+        return RepoContext(
+            owner="acme",
+            repo="backend",
+            azure_search_endpoint="https://fake.search.windows.net",
+            azure_search_key="fake-key",
+            azure_search_index="incidents-acme-backend",
+        )
+
+    def test_run_returns_agent_result_with_incidents(self):
+        incidents = [
+            _incident("INC-1", "2026-02-24T14:30:00Z", ["payment.py"]),
+            _incident("INC-2", "2026-02-23T14:30:00Z", ["payment.py"]),
+        ]
+        mock_mcp = MagicMock()
+        mock_mcp.query_incidents_by_files_search.return_value = incidents
+
+        with patch("agents.history_agent.agent.AzureMCPServer", return_value=mock_mcp):
+            ctx = self._make_ctx_with_index()
+            result = _run_async(run(changed_files=["payment.py"], repo_ctx=ctx))
+
+        assert isinstance(result, AgentResult)
+        assert result.agent_name == "History Agent"
+        assert result.status in ("pass", "warning", "critical")
+        assert result.risk_score_modifier >= 0
+        assert isinstance(result.findings, list)
+        assert isinstance(result.recommended_action, str)
+
+    def test_run_reflects_incident_count_in_risk_score(self):
+        # 4 incidents on one file → risk_score_modifier == 40 → "warning"
+        incidents = [
+            _incident(f"INC-{i}", f"2026-02-{20+i:02d}T10:00:00Z", ["db.py"])
+            for i in range(4)
+        ]
+        mock_mcp = MagicMock()
+        mock_mcp.query_incidents_by_files_search.return_value = incidents
+
+        with patch("agents.history_agent.agent.AzureMCPServer", return_value=mock_mcp):
+            ctx = self._make_ctx_with_index()
+            result = _run_async(run(changed_files=["db.py"], repo_ctx=ctx))
+
+        assert result.risk_score_modifier == 40
+        assert result.status == "warning"
+
+    def test_run_no_matching_incidents_returns_pass(self):
+        mock_mcp = MagicMock()
+        mock_mcp.query_incidents_by_files_search.return_value = []
+
+        with patch("agents.history_agent.agent.AzureMCPServer", return_value=mock_mcp):
+            ctx = self._make_ctx_with_index()
+            result = _run_async(run(changed_files=["new_feature.py"], repo_ctx=ctx))
+
+        assert result.status == "pass"
+        assert result.risk_score_modifier == 0
+
+    def test_run_data_contract_roundtrip(self):
+        """AgentResult returned by run() must survive JSON serialisation."""
+        mock_mcp = MagicMock()
+        mock_mcp.query_incidents_by_files_search.return_value = []
+
+        with patch("agents.history_agent.agent.AzureMCPServer", return_value=mock_mcp):
+            ctx = self._make_ctx_with_index()
+            result = _run_async(run(changed_files=["handler.py"], repo_ctx=ctx))
+
+        parsed = AgentResult.from_json(result.to_json())
+        assert parsed == result
