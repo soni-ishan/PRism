@@ -21,6 +21,13 @@
 
 **🎬 [Watch the 2-minute Demo on YouTube](https://www.youtube.com/watch?v=3jAxC7I3zYk)**
 
+| | |
+|---|---|
+| 🏗️ Architecture | [architecture.mermaid](https://github.com/soni-ishan/PRism/blob/main/architecture.mermaid) |
+| 🌐 Setup Platform | [prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io](https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/) |
+| 🔌 VS Code Extension | [marketplace.visualstudio.com](https://marketplace.visualstudio.com/items?itemName=thegooddatalab.prism-risk-gate) |
+| 🎬 Demo Video | [youtube.com/watch?v=3jAxC7I3zYk](https://www.youtube.com/watch?v=3jAxC7I3zYk) |
+
 ---
 
 ## The Problem
@@ -39,7 +46,7 @@ This makes deployment decisions feel like guesswork — and sometimes, they are.
 
 ---
 
-## How It Works
+## How It Works (High-Level Overview)
 
 PRism triggers automatically when a PR is opened or updated. Four specialized AI agents analyze the change **in parallel**, each returning a structured JSON payload via a shared Data Contract. The Verdict Agent ingests all four payloads and converges on a single governed decision.
 
@@ -81,6 +88,8 @@ Analyst]  Agent]     Agent]     Agent]
                             via Copilot
                           + Rollback plan
 ```
+
+**See [architecture.mermaid](architecture.mermaid) for the detailed system diagram ([view on GitHub](https://github.com/soni-ishan/PRism/blob/main/architecture.mermaid)).**
 
 ---
 
@@ -211,64 +220,6 @@ PRism/
 
 ---
 
-## Setup
-
-### Option 1 — Setup Wizard (Recommended)
-
-The PRism Setup Platform provides a guided 3-step onboarding wizard — no YAML editing or shell scripts required:
-
-```bash
-cd platform
-pip install -r requirements.txt
-cp .env.example .env
-# Fill in GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, AZURE_AD_CLIENT_ID, AZURE_AD_CLIENT_SECRET
-uvicorn server.app:app --port 8080 --reload
-```
-
-Open **http://localhost:8080** in your browser. The wizard walks you through:
-1. GitHub OAuth login + automatic `prism-gate.yml` workflow installation into your repo
-2. Azure AD login + Log Analytics workspace selection (links your production incident history)
-3. End-to-end connection verification
-
-See [`platform/README.md`](platform/README.md) for full configuration details.
-
----
-
-### Option 2 — Manual / Self-Hosted
-
-> Prerequisites: Azure subscription with OpenAI + AI Search + Content Safety, GitHub account, Python 3.12+
-
-```bash
-# Clone the repo
-git clone https://github.com/soni-ishan/PRism.git
-cd PRism
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Fill in all Azure + GitHub credentials (see .env.example for full reference)
-
-# Initialize Azure AI Search with sample incident data
-python -m mcp_servers.azure_mcp_server.setup
-
-# Run the orchestrator
-uvicorn agents.orchestrator.server:app --reload --port 8000
-```
-
-Full Azure deployment via Bicep IaC: see [`foundry/deployment_config/README.md`](foundry/deployment_config/README.md)
-
----
-
-### Option 3 — VS Code Extension
-
-Download the **PRism** extension from the VS Code Marketplace (publisher: `thegooddatalab`). It connects to the hosted PRism backend automatically. As a special offer for the AI Dev Days Hackathon, up to **500 analysis runs** are provided free of charge for judges and reviewers using their own workspace.
-
-See [`vscode_extension/README.md`](vscode_extension/README.md) for details.
-
----
-
 ## Hackathon
 
 **AI Dev Days Hackathon — Microsoft, February 10 – March 15, 2026**
@@ -281,7 +232,7 @@ See [`vscode_extension/README.md`](vscode_extension/README.md) for details.
 
 PRism directly addresses the challenge criteria: intelligent CI/CD pipelines with agent orchestration, automated incident response, and real-time reliability monitoring — with a pre-deployment risk gate that tests against real-world production state, not just isolated code.
 
-**For Judges:** Download our VS Code extension and experience PRism from your own workspace. We cover up to **500 analysis runs** using PRism's own Azure OpenAI model deployed on Microsoft Foundry — no Azure subscription required on your end.
+**For Judges:** Download our [VS Code extension](https://marketplace.visualstudio.com/items?itemName=thegooddatalab.prism-risk-gate) and experience PRism from your own workspace. We cover up to **500 analysis runs** using PRism's own Azure OpenAI model deployed on Microsoft Foundry — no Azure subscription required on your end. You can also try the live [Setup Platform](https://prism-dev-platform.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io/) to onboard a repo in under 3 minutes.
 
 ---
 
