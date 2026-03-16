@@ -161,12 +161,7 @@ jobs:
           echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_ENV
           echo "CONTAINER_APP_NAME=$CONTAINER_APP_NAME" >> $GITHUB_ENV
           echo "FUNCTION_APP_NAME=$FUNCTION_APP_NAME" >> $GITHUB_ENV
-          echo "ORCHESTRATOR_URL=$ORCHESTRATOR_URL" >> $GITHUB_ENV
-      
-      # ════════════════════════════════════════════════════════════
-      # Build and Deploy Container
-      # ════════════════════════════════════════════════════════════
-      
+          echo "ORCHESTRATOR_URL=$ORCHESTRATOR_URL" >> $GITHUB_ENV   
       - name: Login to Azure Container Registry
         run: |
           az acr login --name ${{ env.ACR_NAME }}
