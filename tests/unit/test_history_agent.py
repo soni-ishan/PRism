@@ -2,15 +2,17 @@
 Tests for the PRism History Agent.
 
 Covers risk-score/status thresholds, file↔incident correlation behavior,
-and recency ordering for incident detail findings.
+recency ordering for incident detail findings, and the public run() coroutine.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from agents.history_agent.agent import HistoryAgent
+from agents.history_agent.agent import HistoryAgent, run
+from agents.shared.data_contract import AgentResult
 
 
 def _incident(
@@ -132,3 +134,60 @@ class TestHistoryAgentRecencyOrdering:
         assert "Newest" in detail_findings[0]
         assert "2026-02-20" in detail_findings[1]
         assert "Middle" in detail_findings[1]
+
+
+# ── run() public coroutine tests ────────────────────────────────────
+
+
+class TestRunPublicInterface:
+    """Tests for the public async run() coroutine used by the orchestrator."""
+
+    def test_run_no_files_no_repo_ctx_returns_pass(self):
+        """Empty file list with no repo_ctx should return pass with minimal risk."""
+        result = asyncio.run(run(changed_files=[]))
+
+        assert isinstance(result, AgentResult)
+        assert result.agent_name == "History Agent"
+        assert result.status == "pass"
+        assert result.risk_score_modifier == 0
+
+    def test_run_files_no_repo_ctx_reports_no_deployment_connection(self):
+        """With files but no repo_ctx, agent reports no deployment connection."""
+        result = asyncio.run(run(changed_files=["payment_service.py"]))
+
+        assert isinstance(result, AgentResult)
+        assert result.agent_name == "History Agent"
+        assert result.status == "pass"
+        assert any("No deployment connection" in f for f in result.findings)
+
+    def test_run_with_mock_agent_returns_valid_agent_result(self):
+        """run() with a mock HistoryAgent returns a properly validated AgentResult."""
+        mock_agent = MagicMock()
+        mock_agent.analyze_pr.return_value = {
+            "agent_name": "History Agent",
+            "risk_score_modifier": 30,
+            "status": "pass",
+            "findings": ["payment_service.py involved in 3 incident(s)"],
+            "recommended_action": "No significant incident history.",
+        }
+
+        with patch("agents.history_agent.agent.HistoryAgent", return_value=mock_agent):
+            result = asyncio.run(run(changed_files=["payment_service.py"]))
+
+        assert isinstance(result, AgentResult)
+        assert result.agent_name == "History Agent"
+        assert result.risk_score_modifier == 30
+        assert result.status == "pass"
+
+    def test_run_data_contract_compliance(self):
+        """run() must always return a valid, serialisable AgentResult."""
+        result = asyncio.run(run(changed_files=["any_file.py"]))
+
+        assert isinstance(result, AgentResult)
+        assert 0 <= result.risk_score_modifier <= 100
+        assert result.status in ("pass", "warning", "critical")
+        assert isinstance(result.findings, list)
+        assert isinstance(result.recommended_action, str)
+        # Round-trip through JSON serialization must be lossless
+        parsed = AgentResult.from_json(result.to_json())
+        assert parsed == result
