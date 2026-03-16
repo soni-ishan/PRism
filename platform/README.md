@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="frontend/logo.png" alt="PRism" width="100" />
+</p>
+
 # PRism Setup Platform
 
 A **self-service onboarding wizard** that guides users through connecting their GitHub repository and Azure Log Analytics workspace to PRism — with zero manual YAML editing or shell scripts.
@@ -6,11 +10,13 @@ A **self-service onboarding wizard** that guides users through connecting their 
 
 The platform is a **standalone web application** (FastAPI backend + vanilla HTML/CSS/JS frontend) that:
 
-1. **GitHub Connection** — Redirects users to install the PRism GitHub App (or complete an OAuth flow). After installation the platform automatically commits `.github/workflows/prism-gate.yml` to the target repository via the GitHub Contents API. No more manual copy-paste.
+1. **GitHub Connection** — GitHub OAuth login. The platform commits `.github/workflows/prism-gate.yml` directly to the target repository via the GitHub Contents API, and stores an encrypted PAT for the orchestrator's webhook handler. No manual copy-paste.
 
-2. **Azure Connection** — Walks users through an Azure AD OAuth login, then presents a visual dropdown of their Azure subscriptions and Log Analytics workspaces. One click connects the selected workspace to the PRism ingestion pipeline.
+2. **Azure Connection** — Azure AD OAuth login with a visual dropdown of the user's subscriptions and Log Analytics workspaces. One click links the selected workspace to PRism's ingestion pipeline (persisted to the registrations database).
 
-3. **Verify** — Shows a setup summary and pings the orchestrator health endpoint so users can confirm everything is working before opening their first PR.
+3. **Verify** — Shows a setup summary and pings the orchestrator health endpoint (`GET /health`) so users can confirm everything is working before opening their first PR.
+
+4. **Dashboard** — `app.html` shows all registered repos, per-repo workflow status, and lets users manage their Azure workspace connections after onboarding.
 
 ## Architecture — Completely Independent of the Orchestrator
 
@@ -21,28 +27,30 @@ The platform is a **standalone web application** (FastAPI backend + vanilla HTML
 │  ┌──────────────┐      ┌─────────────────────────────┐    │
 │  │  Frontend     │      │  Backend  (FastAPI :8080)   │    │
 │  │  index.html   │◄────►│  server/app.py              │    │
-│  │  app.js       │      │                             │    │
-│  │  styles.css   │      │  routers/                   │    │
-│  └──────────────┘      │    github_setup.py          │    │
+│  │  app.html     │      │                             │    │
+│  │  docs.html    │      │  routers/                   │    │
+│  └──────────────┘      │    auth.py                  │    │
+│                         │    github_setup.py          │    │
 │                         │    azure_setup.py           │    │
+│                         │    registrations.py         │    │
 │                         │  services/                  │    │
+│                         │    auth_service.py          │    │
 │                         │    github_service.py        │    │
 │                         │    azure_service.py         │    │
+│                         │    db.py (SQLAlchemy async) │    │
 │                         └──────────────┬──────────────┘    │
-│  ZERO imports from                     │ Only knows        │
-│  agents/, mcp_servers/, foundry/       │ orchestrator      │
-│                                        │ as a URL string   │
+│  ZERO imports from                     │ Knows orchestrator │
+│  agents/, mcp_servers/, foundry/       │ only as a URL      │
 └────────────────────────────────────────┼───────────────────┘
                                          │
                              ┌───────────▼──────────────┐
                              │  Orchestrator (external)  │
-                             │  Could be PRism-hosted    │
-                             │  OR user's own Azure      │
-                             │  deployment in the future │
+                             │  Hosted on Azure or       │
+                             │  user's own deployment    │
                              └──────────────────────────┘
 ```
 
-**Key principle**: `platform/` has **zero imports** from `agents/`, `mcp_servers/`, or `foundry/`. The orchestrator is known only via the `PRISM_ORCHESTRATOR_URL` environment variable. This means that when users can self-host the orchestrator, this platform works unchanged — it just points to their URL.
+**Key principle**: `platform/` has **zero imports** from `agents/`, `mcp_servers/`, or `foundry/`. The orchestrator is known only via the `PRISM_ORCHESTRATOR_URL` environment variable.
 
 ## Running Locally
 
@@ -50,8 +58,7 @@ The platform is a **standalone web application** (FastAPI backend + vanilla HTML
 cd platform
 pip install -r requirements.txt
 cp .env.example .env
-# Fill in at least GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET
-# or GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY_PATH
+# Fill in GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET
 # and AZURE_AD_CLIENT_ID + AZURE_AD_CLIENT_SECRET
 
 uvicorn server.app:app --port 8080 --reload
@@ -59,43 +66,43 @@ uvicorn server.app:app --port 8080 --reload
 
 Open **http://localhost:8080** in your browser.
 
-The interactive API documentation is available at **http://localhost:8080/api/docs**.
+Interactive API docs: **http://localhost:8080/api/docs**
 
 ## Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `PRISM_ORCHESTRATOR_URL` | No | URL of the PRism orchestrator (defaults to the shared dev instance) |
-| `GITHUB_APP_ID` | App flow | Numeric ID of your registered GitHub App |
-| `GITHUB_APP_SLUG` | App flow | Slug of your GitHub App (used for install URL) |
-| `GITHUB_APP_PRIVATE_KEY_PATH` | App flow | Path to the `.pem` private key for your GitHub App |
-| `GITHUB_CLIENT_ID` | OAuth flow | Client ID of your GitHub OAuth App |
-| `GITHUB_CLIENT_SECRET` | OAuth flow | Client secret of your GitHub OAuth App |
-| `GITHUB_OAUTH_REDIRECT_URI` | OAuth flow | Callback URL (must match GitHub App settings) |
-| `AZURE_AD_CLIENT_ID` | Azure | Client ID of your Azure AD App registration |
-| `AZURE_AD_CLIENT_SECRET` | Azure | Client secret of your Azure AD App |
+| `PRISM_ORCHESTRATOR_URL` | No | URL of the PRism orchestrator (defaults to shared hosted instance) |
+| `GITHUB_CLIENT_ID` | Yes | Client ID of your GitHub OAuth App |
+| `GITHUB_CLIENT_SECRET` | Yes | Client secret of your GitHub OAuth App |
+| `GITHUB_OAUTH_REDIRECT_URI` | Yes | Callback URL (must match GitHub App settings) |
+| `AZURE_AD_CLIENT_ID` | Yes | Client ID of your Azure AD App registration |
+| `AZURE_AD_CLIENT_SECRET` | Yes | Client secret of your Azure AD App |
 | `AZURE_AD_TENANT_ID` | No | Tenant ID or `common` (default) for multi-tenant |
-| `AZURE_AD_REDIRECT_URI` | Azure | Callback URL (must match Azure AD App redirect URI) |
-| `PLATFORM_CONFIG_PATH` | No | Path for persisting workspace config JSON |
+| `AZURE_AD_REDIRECT_URI` | Yes | Callback URL (must match Azure AD App redirect URI) |
+| `JWT_SECRET` | Yes | Secret key for signing session JWTs (24-hour expiry) |
+| `ENCRYPTION_KEY` | Yes | Fernet key for encrypting GitHub PATs at rest |
+| `DATABASE_URL` | No | Async DB URL — defaults to SQLite (`prism_platform.db`) in dev, PostgreSQL in prod |
+| `PLATFORM_CONFIG_PATH` | No | Path for persisting Azure workspace config JSON |
 
-## Registering a GitHub App
+## Authentication Flow
 
-1. Go to **GitHub → Settings → Developer settings → GitHub Apps → New GitHub App**
-2. Set the app name to `PRism Gate` (or similar)
-3. Set the **Homepage URL** to your platform URL
-4. Set the **Callback URL** to `http://localhost:8080/api/setup/github/callback`
-5. **Webhook**: Uncheck "Active" (not needed for the setup wizard)
-6. **Repository permissions**:
-   - Contents: **Read and write** (to commit the workflow file)
-   - Secrets: **Read** (to check if `GH_PAT` is configured)
-   - Pull requests: **Write** (for PRism to post comments)
-7. Click **Create GitHub App**, note the **App ID**, and download the **private key `.pem`**
-8. Copy the App ID and `.pem` path into your `.env`
+- **Users** sign in via GitHub OAuth2. Session issued as an httpOnly `prism_session` JWT cookie.
+- **GitHub PATs** are encrypted with Fernet (AES-128-CBC) at rest using `ENCRYPTION_KEY`.
+- **Azure workspace linking** uses a short-lived Azure AD Bearer token (not stored) to list subscriptions and workspaces.
+- **GitHub webhooks** sent to the orchestrator are verified via HMAC-SHA256.
+
+## Registering a GitHub OAuth App
+
+1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
+2. Set **Homepage URL** to your platform URL
+3. Set **Authorization callback URL** to `http://localhost:8080/api/auth/github/callback`
+4. Copy the **Client ID** and generate a **Client Secret** into your `.env`
 
 ## Registering an Azure AD App
 
 1. Go to **Azure Portal → Azure Active Directory → App registrations → New registration**
-2. Name: `PRism Setup`; Supported account types: **Any Azure AD directory + personal accounts**
+2. Name: `PRism Setup`; supported account types: **Any Azure AD directory + personal accounts**
 3. Add a **Redirect URI**: `http://localhost:8080/api/setup/azure/callback` (type: Web)
 4. Go to **API permissions → Add a permission → Azure Service Management → user_impersonation**
 5. Go to **Certificates & secrets → New client secret**, copy the value
@@ -114,23 +121,28 @@ docker run -p 8080:8080 --env-file .env prism-platform
 ```
 platform/
 ├── server/
-│   ├── __init__.py
-│   ├── app.py                 # Standalone FastAPI app (port 8080)
-│   ├── models.py              # Pydantic models for setup state
+│   ├── app.py                     # Standalone FastAPI app (port 8080)
+│   ├── models.py                  # Pydantic models for request/response
 │   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── github_setup.py    # GitHub App/OAuth endpoints
-│   │   └── azure_setup.py    # Azure OAuth + workspace picker
+│   │   ├── auth.py                # GitHub OAuth2 login/logout + /me
+│   │   ├── github_setup.py        # PAT validation + workflow install + status
+│   │   ├── azure_setup.py         # Azure OAuth + subscription/workspace picker
+│   │   └── registrations.py       # CRUD endpoints for repo registrations
 │   └── services/
-│       ├── __init__.py
-│       ├── github_service.py  # GitHub Contents API interactions
-│       └── azure_service.py  # Azure ARM API interactions
+│       ├── auth_service.py        # JWT session + Fernet PAT encryption
+│       ├── github_service.py      # GitHub Contents API interactions
+│       ├── azure_service.py       # Azure ARM API interactions
+│       └── db.py                  # SQLAlchemy async engine + session factory
 ├── frontend/
-│   ├── index.html             # 3-step setup wizard
-│   ├── styles.css             # PRism-branded styling
-│   └── app.js                 # Wizard state & API calls
-├── requirements.txt           # Platform-only dependencies
-├── Dockerfile                 # Independent container
-├── .env.example               # Configuration template
-└── README.md                  # This file
+│   ├── index.html                 # 3-step setup wizard
+│   ├── app.html                   # Registration dashboard
+│   ├── docs.html                  # Documentation page
+│   ├── docs.md                    # Documentation source
+│   ├── logo.png                   # PRism logo
+│   ├── css/                       # PRism-branded styles
+│   └── js/                        # Wizard state & API calls
+├── requirements.txt               # Platform-only dependencies
+├── Dockerfile                     # Independent container image
+├── .env.example                   # Configuration template
+└── README.md                      # This file
 ```
