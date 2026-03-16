@@ -545,9 +545,19 @@ A commit status check is also set, which can be made **required** in branch prot
 
 ## 8\. VS Code Extension
 
-The PRism VS Code extension provides a **sidebar panel** showing the Deployment Confidence Score, per-agent findings, and status badges — directly in the IDE.
+The PRism VS Code extension provides a **sidebar panel** showing the Deployment Confidence Score, per-agent findings, and rollback playbook — directly in the IDE. Publisher: `thegooddatalab` (VS Code Marketplace).
 
-### 8.1 — Install from Source (Development)
+**Special offer for AI Dev Days Hackathon judges:** The extension ships pre-configured against PRism's hosted backend. You get **500 free analysis runs** powered by PRism's own Azure OpenAI model deployed on Microsoft Foundry — no Azure subscription needed.
+
+### 8.1 — Install
+
+**From the Marketplace (recommended):**
+
+Search **"PRism"** in the VS Code Extensions view, or install via the command line:
+
+code \--install-extension thegooddatalab.prism
+
+**From source (development):**
 
 cd vscode\_extension
 
@@ -555,36 +565,62 @@ npm install
 
 npm run compile
 
-Then press **F5** in VS Code to launch the Extension Development Host.
+\# Press F5 to launch the Extension Development Host
 
-### 8.2 — Install from VSIX (Distribution)
+### 8.2 — GitHub Authorization (First-Time Setup)
 
-cd vscode\_extension
+On first activation, the extension prompts you to **authorize your GitHub account** via VS Code's built-in GitHub authentication. This is optional but strongly recommended.
 
-npx \--no-install vsce package
+Two modes of operation based on your choice:
 
-\# This creates prism-risk-gate-0.1.0.vsix
+#### Scenario A — GitHub not authorized
 
-code \--install-extension prism-risk-gate-0.1.0.vsix
+The extension performs a local analysis using VS Code's git extension helpers to extract the current diff and changed files. This means:
 
-### 8.3 — Configuration
+- **Diff Analyst** and **Coverage Agent** work using local `git diff HEAD~1` data
+- **Timing Agent** always works (it only needs the current timestamp)
+- **History Agent** is skipped — it requires GitHub repository context to look up past incidents in Azure AI Search
+- The extension calls `/analyze` on the PRism backend, consuming one free-tier analysis run
 
-Open VS Code Settings (Ctrl+,) and search for "PRism":
+#### Scenario B — GitHub authorized (recommended)
+
+The extension connects to your GitHub account and looks up the **open PR for your current branch**. It then reads the existing PRism deployment analysis comment directly from the PR — no new analysis is triggered.
+
+Benefits of this approach:
+- **Zero free-tier runs consumed** — just reading an existing comment
+- **Most accurate results** — the PR comment analysis has full repo context, including incident history from the History Agent
+- **Consistent view** — you see exactly the same assessment as team members looking at the PR on GitHub
+
+### 8.3 — When Does Analysis Run?
+
+| Event | Behavior |
+| :---- | :---- |
+| **Extension opens on a new repo/folder** | Runs once (Scenario A) or reads PR comment (Scenario B) |
+| **You make a `git commit`** | Auto-refreshes the sidebar via VS Code git commit events |
+| **Re-run button clicked** | Forces a fresh analysis immediately |
+| **Timer / polling** | ❌ Disabled — the extension never polls on a timer |
+
+> **Why no timer?** Polling every 30 seconds was burning through the free-tier quota in minutes without any user action. Analysis now only triggers on meaningful events.
+
+### 8.4 — Configuration
+
+Open VS Code Settings (Ctrl+,) and search for **"PRism"**:
 
 | Setting | Default | Description |
 | :---- | :---- | :---- |
-| `prism.serverUrl` | `http://localhost:8000` | URL of the PRism FastAPI backend. Change to your ACA endpoint for production. |
-| `prism.autoRefresh` | `true` | Automatically re-analyze when the active branch changes. |
-| `prism.refreshIntervalSeconds` | `30` | How often to poll the backend (in seconds). |
+| `prism.serverUrl` | Hosted PRism backend on Azure Container Apps | URL of the PRism FastAPI orchestrator. Override for self-hosted deployments. |
+| `prism.githubToken` | *(uses VS Code built-in GitHub auth)* | Optional GitHub PAT with `repo` scope. Overrides the VS Code built-in auth prompt. |
 
-### 8.4 — Features
+### 8.5 — Features
 
-- **Activity bar icon** — click the PRism prism icon in the left sidebar  
-- **Score gauge** — color-coded circle (green ≥70, yellow 40-69, red \<40)  
-- **Agent cards** — each agent shows status badge, score modifier, findings  
-- **Re-run button** — manually trigger a fresh analysis  
-- **Full Report panel** — opens a detailed report in a new editor tab  
-- **Mock mode** — if the backend is unreachable, the extension falls back to mock data so you can still see the UX
+- **Activity bar icon** — click the PRism icon in the left sidebar
+- **Score gauge** — color-coded (green ≥70, yellow 40–69, red \<40)
+- **Agent cards** — each agent shows status badge, risk modifier, and specific findings
+- **Rollback playbook drawer** — expandable section with step-by-step rollback instructions when deploy is blocked
+- **Freemium credit meter** — shows remaining free-tier analysis runs out of 500
+- **Re-run button** — toolbar button triggers immediate fresh analysis
+- **Full Report panel** — `PRism: Show Full Report` command opens a detailed panel
+- **HTTP 402 handling** — when free-tier credits are exhausted, a notification appears with an "Open Settings" link to configure a self-hosted backend
 
 ---
 
@@ -845,10 +881,13 @@ Expected response:
 
 ### 11.3 — VS Code Extension
 
-1. Set `prism.serverUrl` to your ACA endpoint  
-2. Open a Git repository in VS Code  
-3. Click the PRism icon in the activity bar  
-4. You should see the score gauge, agent cards, and findings
+1. Install the extension from the Marketplace (publisher: `thegooddatalab`)
+2. Open a Git repository in VS Code
+3. On first activation, approve the GitHub authorization prompt (optional but recommended)
+4. Click the PRism icon in the activity bar
+5. If GitHub is authorized and the repo has an open PR with a PRism comment: you'll see the score from that PR comment
+6. If not authorized (or no open PR): the extension runs a local analysis — you should see the score gauge, per-agent cards, and (if deploy is blocked) the rollback playbook
+7. Make a commit to verify the sidebar auto-refreshes
 
 ### 11.4 — GitHub Actions
 
@@ -906,9 +945,20 @@ Weights must sum to 1.0.
 
 This means the extension can't reach the backend at the configured `prism.serverUrl`. Check:
 
-1. Is the backend running? (`curl http://localhost:8000/health`)  
-2. Is the URL correct in VS Code settings?  
-3. If using ACA, is the container app running? (`az containerapp show ...`)
+1. Is the backend running? (`curl http://localhost:8000/health`)
+2. Is the URL correct in VS Code settings? (search "PRism" in Settings)
+3. If using Azure Container Apps, is the container app running? (`az containerapp show ...`)
+
+If you're authorized with GitHub and your branch has an open PR with a PRism comment, the extension reads the comment directly and does **not** call the backend — so this error won't appear in that case.
+
+### Q: The extension used up my free-tier credits without me doing anything
+
+This was a known issue with the earlier polling design (the extension used to re-analyze every 30 seconds). It is fixed. The extension now only runs analysis when:
+- You open it on a new repo/folder (once)
+- You make a `git commit`
+- You click the Re-run button
+
+The free tier is **500 runs**, which is more than enough for thorough evaluation.
 
 ### Q: How do I make the PRism status check a required check for merging?
 
@@ -924,9 +974,10 @@ This means the extension can't reach the backend at the configured `prism.server
 | Tier | Time | What You Get | What You Need |
 | :---- | :---- | :---- | :---- |
 | **Local dev** | 5 min | Full scoring engine, mock data, API | Python \+ `pip install` |
-| **\+ GitHub Actions** | 15 min | Automated PR comments \+ status checks | Add 1 workflow file \+ 1 repo variable |
-| **\+ Azure OpenAI** | 25 min | LLM-enhanced risk briefs \+ playbooks | 3 env vars |
-| **\+ Full Azure** | 45 min | Tracing, content safety, audit trail, AI Search | All env vars (or Bicep one-liner) |
+| **\+ GitHub Actions** | 15 min | Automated PR comments \+ merge blocking | Add 1 workflow file \+ 1 repo variable (auto-installed by Setup Wizard) |
+| **\+ VS Code extension** | 2 min | Live score in IDE, auto-refresh on commit, PR comment parsing | Install from Marketplace — 500 free runs included |
+| **\+ Azure OpenAI** | 25 min | LLM-enhanced risk briefs \+ rollback playbooks | 3 env vars |
+| **\+ Full Azure** | 45 min | Tracing, content safety, audit trail, incident history | All env vars (or Bicep one-liner) |
 | **Production (ACA)** | 1 hr | Scale-to-zero hosting, zero API keys, HTTPS | Managed Identity \+ RBAC (Section 10\) |
 
-PRism scales from a **zero-config local tool** to a **fully governed enterprise deployment** — incrementally, with no breaking changes at any step.  
+PRism scales from a **zero-config local tool** to a **fully governed enterprise deployment** — incrementally, with no breaking changes at any step.
