@@ -2,7 +2,7 @@
   <img src="vscode_extension/media/prism-icon.png" alt="PRism" width="120" />
 </p>
 
-# PRism — Deployment Risk Intelligence
+# PRism - Deployment Risk Intelligence
 
 ### Agentic Pre-Deployment Risk Gate, Powered by Microsoft AI Platform
 
@@ -290,12 +290,12 @@ PRism directly addresses the challenge criteria: intelligent CI/CD pipelines wit
 
 Built by **The Good Data Lab** for the Microsoft AI Dev Days Hackathon 2026.
 
-| Member | Role | Owns |
-|---|---|---|
-| **Ishan Soni** | Architect | Orchestrator · Verdict Agent · Timing Agent · VS Code Extension · Foundry · Platform |
-| **Simarpreet Purba** | Toolsmith | History Agent · Azure AI Search · Azure MCP Server |
-| **Gurinayat Mangat** | Analyst | Diff Analyst Agent · GitHub MCP · Pattern Detection |
-| **Favour (Ama) Ejike** | QA & Coverage | Coverage Agent · Copilot Integration · Tests · Demo Video |
+| Member | Owns |
+|---|---|
+| **Ishan Soni** | Orchestrator · Verdict Agent · Timing Agent · Foundry Governance · VS Code Extension · GitHub Actions & CI/CD · PR Comment Posting |
+| **Simarpreet Purba** | History Agent · Azure MCP Server · Landing/Setup Platform · Incident Ingestion Pipeline · OAuth Flows · Bicep IaC |
+| **Gurinayat Mangat** | Diff Analyst Agent · LLM Analysis · GitHub MCP Client · Heuristic Pattern Detection · PR Comment CI Risk Brief · Demo Video |
+| **Favour Ejike** | Coverage Agent · Copilot Integration · Test Coverage Detection · Demo Video |
 
 ---
 

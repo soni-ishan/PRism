@@ -1,26 +1,22 @@
-<p align="center">
-  <img src="media/prism-icon.png" alt="PRism" width="100" />
-</p>
+# PRism - Deployment Risk Intelligence
 
-# PRism — Deployment Risk Intelligence
-
-AI-powered pre-deployment risk gate for VS Code. Shows a **Deployment Confidence Score**, per-agent risk findings, and rollback playbooks right in your sidebar — before you merge.
+AI-powered pre-deployment risk gate for VS Code. Shows a **Deployment Confidence Score**, per-agent risk findings, and rollback playbooks right in your sidebar; before you merge.
 
 ## Features
 
-- **Deployment Confidence Score** — A 0–100 risk score computed across four AI agents analyzing your PR diff, test coverage, incident history, and deploy timing
-- **Per-Agent Risk Cards** — See exactly which agent flagged what: diff dangers, test regressions, historical incidents, and deployment window risk
-- **Microsoft Foundry Integration** — Leverages PRism's own Azure OpenAI model (GPT-4o-mini) deployed via Microsoft Foundry, with Azure Content Safety guardrails on every output
-- **Smart Fetching** — First reads the existing PRism review comment from your open PR (free, no API call consumed). Falls back to calling `/analyze` directly with your local git diff only if no PR comment exists
-- **Auto-refresh on Commit** — Sidebar automatically refreshes after every `git commit` using VS Code's built-in git extension events
-- **One-click Re-run** — Refresh button in the sidebar toolbar triggers an immediate fresh analysis
-- **Freemium Credit Meter** — Shows remaining free-tier runs (500 total). Displays a warning when credits are exhausted
+- **Deployment Confidence Score**: A 0–100 risk score computed across four AI agents analyzing your PR diff, test coverage, incident history, and deploy timing
+- **Per-Agent Risk Cards**: See exactly which agent flagged what: diff dangers, test regressions, historical incidents, and deployment window risk
+- **Microsoft Foundry Integration**: Leverages PRism's own Azure OpenAI model (GPT-4o-mini) deployed via Microsoft Foundry, with Azure Content Safety guardrails on every output
+- **Smart Fetching**: First reads the existing PRism review comment from your open PR (free, no API call consumed). Falls back to calling `/analyze` directly with your local git diff only if no PR comment exists
+- **Auto-refresh on Commit**: Sidebar automatically refreshes after every `git commit` using VS Code's built-in git extension events
+- **One-click Re-run**: Refresh button in the sidebar toolbar triggers an immediate fresh analysis
+- **Freemium Credit Meter**: Shows remaining free-tier runs (500 total). Displays a warning when credits are exhausted
 
 ## Getting Started
 
 1. Install the **PRism** extension from the VS Code Marketplace (publisher: `thegooddatalab`)
-2. Open a repository in VS Code — on first activation, approve the GitHub authorization prompt (recommended for the best results)
-3. The PRism sidebar appears in the Activity Bar — click it to see your current deployment confidence score
+2. Open a repository in VS Code - on first activation, approve the GitHub authorization prompt (recommended for the best results)
+3. The PRism sidebar appears in the Activity Bar - click it to see your current deployment confidence score
 4. Optionally install the PRism Gate workflow in your repo via the [PRism Setup Wizard](https://github.com/soni-ishan/PRism) to get automated PR comments alongside the sidebar
 
 No additional setup required. The extension connects to the hosted PRism backend automatically.
@@ -36,8 +32,8 @@ No additional setup required. The extension connects to the hosted PRism backend
 
 ## Commands
 
-- **PRism: Re-run Analysis** (`prism.rerunAnalysis`) — Trigger an immediate fresh analysis. Also available as the refresh icon in the sidebar toolbar.
-- **PRism: Show Full Report** (`prism.showReport`) — Open the full risk report in a separate panel.
+- **PRism: Re-run Analysis** (`prism.rerunAnalysis`) - Trigger an immediate fresh analysis. Also available as the refresh icon in the sidebar toolbar.
+- **PRism: Show Full Report** (`prism.showReport`) - Open the full risk report in a separate panel.
 
 ## How the Sidebar Works
 
@@ -48,15 +44,15 @@ On first activation the extension prompts you to **authorize your GitHub account
 The extension performs a **local analysis** using VS Code's git extension to extract the diff and changed files:
 - Diff Analyst and Coverage Agent analyze your local `git diff HEAD~1`
 - Timing Agent always runs (only needs the current timestamp)
-- History Agent is skipped — it requires GitHub repository context to look up past production incidents
+- History Agent is skipped - it requires GitHub repository context to look up past production incidents
 - One analysis run is consumed from the 500-run free tier
 
 ### With GitHub authorization (recommended)
 
 The extension connects to your GitHub account, finds the open PR for your current branch, and reads the **existing PRism deployment analysis comment** directly from the PR:
-- Zero free-tier runs consumed — just reading a comment
-- Most accurate results — full repo context including History Agent incident data
-- Consistent view — you see exactly the same assessment as your team members on GitHub
+- Zero free-tier runs consumed - just reading a comment
+- Most accurate results - full repo context including History Agent incident data
+- Consistent view - you see exactly the same assessment as your team members on GitHub
 
 ### Trigger events
 
