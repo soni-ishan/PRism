@@ -70,6 +70,40 @@ function startNewRegistration() {
   if (repoInput) repoInput.value = '';
 }
 
+function exitSetupWizard() {
+  if (!state.currentRegistrationId && !state.github.connected) {
+    state.currentStep = 1;
+    state.github = { connected: false, token: null, installedRepo: null };
+    state.azure = { connected: false, skipped: false, token: null, subscriptionId: null, workspaceId: null, workspaceName: null, customerId: null, envVars: null };
+  }
+
+  const result = document.getElementById('workflow-install-result');
+  if (result) {
+    result.className = 'hidden';
+    result.textContent = '';
+  }
+
+  showDashboard();
+}
+
+function handleDashboardNav(event) {
+  if (!state.user) {
+    return true;
+  }
+
+  if (event) {
+    event.preventDefault();
+  }
+
+  if (state.currentView === 'wizard') {
+    exitSetupWizard();
+  } else {
+    showDashboard();
+  }
+
+  return false;
+}
+
 function viewRegistration(id) {
   const reg = state.registrations.find(r => r.id === id);
   if (!reg) return;
@@ -110,6 +144,19 @@ async function deleteRegistration(id) {
 
 // ── Step navigation ────────────────────────────────────────────────────────
 function goToStep(n) {
+  if (n > 1 && !state.github.connected) {
+    state.currentStep = 1;
+    renderStep(1);
+    const result = document.getElementById('workflow-install-result');
+    if (result) {
+      result.className = 'error-tag';
+      result.textContent = 'Connect a repository in Step 1 before continuing to the next step.';
+      show('workflow-install-result');
+    }
+    const repoInput = document.getElementById('inputRepo');
+    if (repoInput) repoInput.focus();
+    return;
+  }
   state.currentStep = n;
   renderStep(n);
 }
@@ -177,7 +224,18 @@ async function installWorkflow() {
   const result = document.getElementById('workflow-install-result');
 
   if (!pat) { alert('Please enter your GitHub Personal Access Token.'); return; }
-  if (!owner || !repo) { alert('Please enter both the owner and repository name.'); return; }
+  if (!owner || !repo) {
+    result.className = 'error-tag';
+    result.textContent = !repo
+      ? 'Repository name is required. Registration cannot be created without a repository.'
+      : 'Repository owner is required. Registration cannot be created without owner/repository.';
+    show('workflow-install-result');
+    if (!repo) {
+      const repoInput = document.getElementById('inputRepo');
+      if (repoInput) repoInput.focus();
+    }
+    return;
+  }
 
   result.className = 'loading-tag';
   result.textContent = 'Validating token & installing workflow…';

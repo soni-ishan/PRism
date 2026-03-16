@@ -21,6 +21,7 @@ param(
     [string]$ResourceGroupName = "rg-prism-dev",
     [string]$Location = "eastus2",
     [string]$ParametersFile = "$PSScriptRoot\..\parameters.json",
+    [string]$ImageTag,
     [switch]$SkipDocker
 )
 
@@ -102,6 +103,24 @@ if ([string]::IsNullOrWhiteSpace($acrName)) {
 }
 Write-Ok "ACR: $acrLoginServer"
 
+# Prefer immutable image tags to avoid stale revisions when using mutable "latest".
+if ([string]::IsNullOrWhiteSpace($ImageTag)) {
+    if ($SkipDocker) {
+        $ImageTag = "latest"
+        Write-Info "No -ImageTag supplied with -SkipDocker; defaulting to '$ImageTag'"
+    } else {
+        $gitSha = ""
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            $gitSha = (git -C $ProjectRoot rev-parse --short HEAD 2>$null).Trim()
+        }
+        $timestamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
+        $ImageTag = if ([string]::IsNullOrWhiteSpace($gitSha)) { "build-$timestamp" } else { "build-$timestamp-$gitSha" }
+        Write-Info "Generated image tag: $ImageTag"
+    }
+} else {
+    Write-Info "Using image tag: $ImageTag"
+}
+
 # ── Docker build & push ──────────────────────────────────────
 
 if (-not $SkipDocker) {
@@ -110,15 +129,16 @@ if (-not $SkipDocker) {
     az acr login --name $acrName
     if ($LASTEXITCODE -ne 0) { Write-Err "ACR login failed"; exit 1 }
 
-    $imageName = "${acrLoginServer}/prism-platform:latest"
-    Write-Info "Building: $imageName"
+    $taggedImage = "${acrLoginServer}/prism-platform:$ImageTag"
+    $latestImage = "${acrLoginServer}/prism-platform:latest"
+    Write-Info "Building: $taggedImage"
 
     # Docker sends build progress to stderr; temporarily lower ErrorActionPreference
     $savedEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     $buildOutput = & docker build `
         --platform linux/amd64 `
-        -t $imageName `
+        -t $taggedImage `
         -f "$PSScriptRoot\Dockerfile" `
         "$ProjectRoot\platform" 2>&1
     $ErrorActionPreference = $savedEAP
@@ -127,11 +147,21 @@ if (-not $SkipDocker) {
     Write-Ok "Image built"
 
     $ErrorActionPreference = "Continue"
-    $pushOutput = & docker push $imageName 2>&1
+    $pushOutput = & docker push $taggedImage 2>&1
     $ErrorActionPreference = $savedEAP
     $pushOutput | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { Write-Err "Docker push failed"; exit 1 }
-    Write-Ok "Image pushed"
+
+    docker tag $taggedImage $latestImage | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Err "Docker tag latest failed"; exit 1 }
+
+    $ErrorActionPreference = "Continue"
+    $pushLatestOutput = & docker push $latestImage 2>&1
+    $ErrorActionPreference = $savedEAP
+    $pushLatestOutput | ForEach-Object { Write-Host $_ }
+    if ($LASTEXITCODE -ne 0) { Write-Err "Docker push latest failed"; exit 1 }
+
+    Write-Ok "Images pushed: $taggedImage and $latestImage"
 } else {
     Write-Info "Skipping Docker build (--SkipDocker)"
 }
@@ -148,6 +178,7 @@ $result = az deployment group create `
     --template-file "$PSScriptRoot\platform-app.bicep" `
     --parameters $FilteredParamsFile `
     --parameters location=$Location `
+    --parameters imageTag=$ImageTag `
     --output json 2>&1
 
 if ($LASTEXITCODE -ne 0) {
