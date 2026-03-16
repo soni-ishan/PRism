@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PRism — Deployment Risk Intelligence</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="shortcut icon" href="/logo.png" />
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/landing.css" />
 </head>
@@ -15,6 +17,8 @@
         <span class="logo"><img src="logo.png" alt="PRism" class="logo-img" />PRism</span>
       </a>
       <nav class="nav-links">
+        <a href="#demo">Demo</a>
+        <a href="#how-it-works">How it works</a>
         <a href="#integrations">Integrations</a>
         <a href="#screenshots">Gallery</a>
         <a href="#resources">Resources</a>
@@ -61,32 +65,150 @@
   <!-- ══════════════════════════════════════════════════════════
        HOW IT WORKS — Pipeline overview
        ══════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════════════
+       DEMO VIDEO
+       ══════════════════════════════════════════════════════════ -->
+  <section class="landing-section section-dark" id="demo">
+    <div class="section-inner">
+      <h2 class="section-title">See PRism in Action</h2>
+      <p class="section-subtitle">A 2-minute walkthrough — setup, live analysis, and the full risk report</p>
+      <a
+        href="https://www.youtube.com/watch?v=3jAxC7I3zYk"
+        target="_blank"
+        rel="noopener"
+        class="resource-video-featured"
+        aria-label="Watch Getting Started with PRism on YouTube"
+      >
+        <div class="resource-video-thumbnail">
+          <img
+            src="https://img.youtube.com/vi/3jAxC7I3zYk/maxresdefault.jpg"
+            alt="Getting Started with PRism — video thumbnail"
+            onerror="this.src='https://img.youtube.com/vi/3jAxC7I3zYk/hqdefault.jpg';"
+          />
+          <div class="resource-video-play">
+            <svg viewBox="0 0 68 48" width="72" height="51" aria-hidden="true">
+              <rect width="68" height="48" rx="10" fill="rgba(0,0,0,0.65)"/>
+              <polygon points="27,13 27,35 49,24" fill="white"/>
+            </svg>
+          </div>
+        </div>
+        <div class="resource-video-body">
+          <span class="showcase-badge">Demo Video</span>
+          <h4>Getting Started with PRism</h4>
+          <p>End-to-end walkthrough — connecting GitHub, reviewing deployment history, and seeing your first AI risk analysis in the VS Code sidebar.</p>
+          <span class="resource-video-cta">Watch on YouTube &rarr;</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       HOW IT WORKS — Architecture diagram
+       ══════════════════════════════════════════════════════════ -->
   <section class="landing-section" id="how-it-works">
     <div class="section-inner">
-      <h2 class="section-title">How PRism Works</h2>
-      <p class="section-subtitle">A multi-agent AI pipeline that runs on every pull request</p>
-      <div class="pipeline-flow">
-        <div class="pipeline-step">
-          <div class="pipeline-num">1</div>
-          <h3>PR Opened</h3>
-          <p>A GitHub Actions workflow fires automatically when a PR is created or updated.</p>
+      <h2 class="section-title">How PRism Connects</h2>
+      <p class="section-subtitle">One pull request trigger — four AI agents — risk verdict surfaced wherever you work</p>
+
+      <div class="arch-diagram">
+
+        <!-- Left: trigger -->
+        <div class="arch-col-left">
+          <div class="arch-node arch-node-source">
+            <div class="arch-node-icon arch-icon-github">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </div>
+            <div class="arch-node-text">
+              <strong>Your Repository</strong>
+              <span>Pull request opened</span>
+            </div>
+          </div>
+          <div class="arch-node arch-node-source">
+            <div class="arch-node-icon arch-icon-action">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            </div>
+            <div class="arch-node-text">
+              <strong>GitHub Actions</strong>
+              <span>Workflow fires on PR</span>
+            </div>
+          </div>
         </div>
-        <div class="pipeline-arrow">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+
+        <!-- Arrow left -->
+        <div class="arch-arrow">
+          <svg width="36" height="16" viewBox="0 0 36 16" fill="none"><line x1="0" y1="8" x2="30" y2="8" stroke="currentColor" stroke-width="1.5"/><path d="M24 2l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div class="pipeline-step">
-          <div class="pipeline-num">2</div>
-          <h3>Agents Analyse</h3>
-          <p>Diff, History, Coverage, and Timing agents each score the change independently.</p>
+
+        <!-- Center: PRism engine -->
+        <div class="arch-prism-box">
+          <div class="arch-prism-header">
+            <img src="logo.png" alt="" class="arch-prism-logo" />
+            <span>PRism Engine</span>
+          </div>
+          <div class="arch-agents-list">
+            <div class="arch-agent-row">
+              <svg class="arch-agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M9 13h6M9 17h4"/></svg>
+              <span class="arch-agent-name">Diff Analyst</span>
+              <span class="arch-agent-tag">Code changes</span>
+            </div>
+            <div class="arch-agent-row">
+              <svg class="arch-agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              <span class="arch-agent-name">History Agent</span>
+              <span class="arch-agent-tag">Deploy history</span>
+            </div>
+            <div class="arch-agent-row">
+              <svg class="arch-agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span class="arch-agent-name">Coverage Agent</span>
+              <span class="arch-agent-tag">Test coverage</span>
+            </div>
+            <div class="arch-agent-row">
+              <svg class="arch-agent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span class="arch-agent-name">Timing Agent</span>
+              <span class="arch-agent-tag">Deploy windows</span>
+            </div>
+          </div>
+          <div class="arch-verdict">
+            <span class="arch-verdict-label">Confidence Score</span>
+            <span class="arch-verdict-score">0 – 100</span>
+          </div>
         </div>
-        <div class="pipeline-arrow">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+
+        <!-- Arrow right -->
+        <div class="arch-arrow">
+          <svg width="36" height="16" viewBox="0 0 36 16" fill="none"><line x1="0" y1="8" x2="30" y2="8" stroke="currentColor" stroke-width="1.5"/><path d="M24 2l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
-        <div class="pipeline-step">
-          <div class="pipeline-num">3</div>
-          <h3>Verdict</h3>
-          <p>The orchestrator merges findings into a confidence score and greenlight or block decision.</p>
+
+        <!-- Right: outputs -->
+        <div class="arch-col-right">
+          <div class="arch-node arch-node-output">
+            <div class="arch-node-icon arch-icon-check">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+            <div class="arch-node-text">
+              <strong>GitHub PR Check</strong>
+              <span>Verdict on every pull request</span>
+            </div>
+          </div>
+          <div class="arch-node arch-node-output">
+            <div class="arch-node-icon arch-icon-vscode">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M17.583 2.006a1.122 1.122 0 0 0-.458.106L10.2 5.616 5.55 2.178a.747.747 0 0 0-.857.028l-2.37 1.96a.752.752 0 0 0-.006 1.153l3.95 3.272-3.95 3.272a.752.752 0 0 0 .006 1.153l2.37 1.96a.747.747 0 0 0 .857.028l4.65-3.438 6.925 3.504A1.125 1.125 0 0 0 18.75 14.1V3.442a1.125 1.125 0 0 0-1.167-1.436zM15.75 11.36l-4.4-2.22 4.4-2.22v4.44z"/></svg>
+            </div>
+            <div class="arch-node-text">
+              <strong>VS Code Sidebar</strong>
+              <span>Live confidence gauge</span>
+            </div>
+          </div>
+          <div class="arch-node arch-node-output">
+            <div class="arch-node-icon arch-icon-deploy">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div class="arch-node-text">
+              <strong>Deployment Gate</strong>
+              <span>Block or greenlight the ship</span>
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
   </section>
@@ -101,30 +223,40 @@
 
       <div class="integration-grid">
         <!-- VS Code Extension -->
-        <div class="integration-card integration-card-featured">
-          <div class="integration-badge">VS Code Extension</div>
-          <div class="integration-icon integration-icon-vscode">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="36" height="36">
-              <path d="M17.583 2.006a1.122 1.122 0 0 0-.458.106L10.2 5.616 5.55 2.178a.747.747 0 0 0-.857.028l-2.37 1.96a.752.752 0 0 0-.006 1.153l3.95 3.272-3.95 3.272a.752.752 0 0 0 .006 1.153l2.37 1.96a.747.747 0 0 0 .857.028l4.65-3.438 6.925 3.504A1.125 1.125 0 0 0 18.75 14.1V3.442a1.125 1.125 0 0 0-1.167-1.436zM15.75 11.36l-4.4-2.22 4.4-2.22v4.44z"/>
-            </svg>
+        <div class="vscode-featured-wrapper">
+          <div class="integration-card vscode-featured-card">
+            <div class="integration-badge">VS Code Extension</div>
+            <div class="integration-icon integration-icon-vscode">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="36" height="36">
+                <path d="M17.583 2.006a1.122 1.122 0 0 0-.458.106L10.2 5.616 5.55 2.178a.747.747 0 0 0-.857.028l-2.37 1.96a.752.752 0 0 0-.006 1.153l3.95 3.272-3.95 3.272a.752.752 0 0 0 .006 1.153l2.37 1.96a.747.747 0 0 0 .857.028l4.65-3.438 6.925 3.504A1.125 1.125 0 0 0 18.75 14.1V3.442a1.125 1.125 0 0 0-1.167-1.436zM15.75 11.36l-4.4-2.22 4.4-2.22v4.44z"/>
+              </svg>
+            </div>
+            <h3>VS Code Sidebar</h3>
+            <p>
+              See live deployment confidence right in your editor. The PRism sidebar
+              shows a real-time gauge, agent findings, and a full risk report — all without
+              leaving VS Code.
+            </p>
+            <div class="integration-actions">
+              <a href="https://marketplace.visualstudio.com/items?itemName=thegooddatalab.prism-risk-gate" class="btn btn-sm btn-primary" target="_blank" rel="noopener">
+                Install Extension
+              </a>
+              <a href="/docs.html#vscode" class="btn btn-sm btn-secondary">Learn more</a>
+            </div>
+            <ul class="integration-features">
+              <li>Live confidence gauge (0–100)</li>
+              <li>Per-agent finding cards</li>
+              <li>Full report &amp; rollback playbook</li>
+              <li>Auto-refresh on branch changes</li>
+            </ul>
           </div>
-          <h3>VS Code Sidebar</h3>
-          <p>
-            See live deployment confidence right in your editor. The PRism sidebar
-            shows a real-time gauge, agent findings, and a full risk report — all without
-            leaving VS Code.
-          </p>
-          <ul class="integration-features">
-            <li>Live confidence gauge (0–100)</li>
-            <li>Per-agent finding cards</li>
-            <li>Full report &amp; rollback playbook</li>
-            <li>Auto-refresh on branch changes</li>
-          </ul>
-          <div class="integration-actions">
-            <a href="https://marketplace.visualstudio.com/" class="btn btn-sm btn-primary" target="_blank" rel="noopener">
-              Install Extension
-            </a>
-            <a href="/docs.html#vscode" class="btn btn-sm btn-secondary">Learn more</a>
+
+          <div class="vscode-featured-screenshot">
+            <img
+              src="media/screenshots/vscode-extension-sidebar.png"
+              alt="PRism VS Code extension sidebar screenshot"
+              onerror="this.closest('.vscode-featured-screenshot').style.display='none';"
+            />
           </div>
         </div>
 
@@ -179,22 +311,6 @@
           </ul>
         </div>
 
-        <!-- Setup Portal -->
-        <div class="integration-card">
-          <div class="integration-icon integration-icon-portal">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8M12 17v4"/></svg>
-          </div>
-          <h3>Setup Portal</h3>
-          <p>
-            A guided 3-step wizard connects GitHub and Azure in minutes.
-            Manage multiple repositories and workspaces from one dashboard.
-          </p>
-          <ul class="integration-features">
-            <li>3-step guided setup wizard</li>
-            <li>Multi-repo management</li>
-            <li>Registration dashboard</li>
-          </ul>
-        </div>
       </div>
     </div>
   </section>
@@ -205,35 +321,37 @@
   <section class="landing-section" id="screenshots">
     <div class="section-inner">
       <h2 class="section-title">See It in Action</h2>
-      <p class="section-subtitle">Screenshots from the portal, VS Code extension, and GitHub integration</p>
+      <p class="section-subtitle">Risk analysis surfaced where your team already works — in GitHub and in your terminal</p>
 
-      <div class="gallery-grid">
-        <div class="gallery-item" id="gallery-1">
-          <div class="gallery-placeholder">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>VS Code Sidebar</span>
+      <div class="showcase-pair">
+        <div class="showcase-card">
+          <div class="showcase-card-image">
+            <img
+              src="media/screenshots/gallery-github-pr-check.png"
+              alt="GitHub PR check showing PRism risk analysis result"
+            />
+          </div>
+          <div class="showcase-card-body">
+            <span class="showcase-badge">GitHub Integration</span>
+            <h4>PR Risk Check</h4>
+            <p>PRism surfaces risk analysis results directly as a GitHub check on every pull request — reviewers see the verdict without leaving GitHub.</p>
           </div>
         </div>
-        <div class="gallery-item" id="gallery-2">
-          <div class="gallery-placeholder">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>Setup Portal Dashboard</span>
+
+        <div class="showcase-card">
+          <div class="showcase-card-image">
+            <img
+              src="media/screenshots/gallery-agent-analysis-report.png"
+              alt="Agent analysis report showing detailed risk breakdown"
+            />
           </div>
-        </div>
-        <div class="gallery-item" id="gallery-3">
-          <div class="gallery-placeholder">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>GitHub PR Check</span>
-          </div>
-        </div>
-        <div class="gallery-item" id="gallery-4">
-          <div class="gallery-placeholder">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>Agent Analysis Report</span>
+          <div class="showcase-card-body">
+            <span class="showcase-badge">AI Analysis</span>
+            <h4>Agent Report</h4>
+            <p>The multi-agent pipeline produces a detailed risk report covering code diffs, deployment history, and deployment timing windows.</p>
           </div>
         </div>
       </div>
-      <p class="hint gallery-hint">Upload your own screenshots to replace these placeholders.</p>
     </div>
   </section>
 
@@ -267,14 +385,6 @@
           <h3>GitHub Repository</h3>
           <p>Source code, issues, and contribution guidelines</p>
         </a>
-        <!-- Video placeholder -->
-        <div class="resource-card resource-card-video" id="resource-video-1">
-          <div class="resource-icon resource-icon-video">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="28" height="28"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </div>
-          <h3>Getting Started Video</h3>
-          <p>Coming soon — walkthrough of the full setup experience</p>
-        </div>
       </div>
     </div>
   </section>
@@ -327,5 +437,6 @@
       } catch (_) { /* stay anonymous */ }
     })();
   </script>
+
 </body>
 </html>

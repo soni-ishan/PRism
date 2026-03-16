@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PRism — Setup Portal</title>
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="shortcut icon" href="/logo.png" />
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/app.css" />
 </head>
@@ -16,7 +18,7 @@
       </a>
       <nav class="nav-links">
         <a href="/">Home</a>
-        <a href="/app.html#dashboard">Dashboard</a>
+        <a href="/app.html#dashboard" onclick="return handleDashboardNav(event)">Dashboard</a>
         <a href="/docs.html">Docs</a>
       </nav>
       <div class="header-right" id="header-right"></div>
