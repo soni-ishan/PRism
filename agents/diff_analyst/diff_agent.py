@@ -148,6 +148,7 @@ If you return status="pass", you MUST include at least 2 findings:
 # -----------------------------
 
 def _safe_findings_list(x: Any) -> List[str]:
+    """Normalize LLM findings into a list of strings."""
     if x is None:
         return []
     if isinstance(x, list):
@@ -156,6 +157,7 @@ def _safe_findings_list(x: Any) -> List[str]:
 
 
 def _fallback(reason: str, h_risk: int = 60, h_status: str = "warning", h_findings: List[str] | None = None) -> AgentResult:
+    """Build a safe fallback AgentResult when parsing or model calls fail."""
     findings = (h_findings or [])[:8]
     if not findings:
         findings = [reason]
@@ -169,6 +171,7 @@ def _fallback(reason: str, h_risk: int = 60, h_status: str = "warning", h_findin
 
 
 def _run_core(diff_text: str, changed_files: List[str]) -> AgentResult:
+    """Run deterministic scan plus optional LLM enrichment for a PR diff."""
     if not diff_text or not diff_text.strip():
         return AgentResult(
             agent_name=AGENT_NAME,

@@ -80,6 +80,7 @@ app.include_router(registrations.router)
 
 @app.on_event("startup")
 async def _startup():
+    """Initialize persistent platform storage before serving requests."""
     await init_db()
 
 # ---------------------------------------------------------------------------

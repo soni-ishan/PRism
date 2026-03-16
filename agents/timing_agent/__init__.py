@@ -83,6 +83,7 @@ def _is_holiday_or_eve(d: date) -> tuple[bool, str | None]:
 # ── Risk Scoring Dimensions ──────────────────────────────────────────
 
 def _day_of_week_risk(dt: datetime) -> tuple[int, str | None]:
+    """Score day-of-week deployment risk and return modifier plus finding text."""
     weekday = dt.weekday()  # 0=Mon … 6=Sun
     if weekday == 4:  # Friday
         return 30, "Deployment on Friday — historically high incident rate"
@@ -95,6 +96,7 @@ def _day_of_week_risk(dt: datetime) -> tuple[int, str | None]:
 
 
 def _time_of_day_risk(dt: datetime) -> tuple[int, str | None]:
+    """Score time-of-day deployment risk based on staffing and support windows."""
     t = dt.time()
     pretty = t.strftime("%I:%M %p").lstrip("0")
     if t >= time(16, 0):
@@ -107,6 +109,7 @@ def _time_of_day_risk(dt: datetime) -> tuple[int, str | None]:
 
 
 def _holiday_risk(dt: datetime) -> tuple[int, str | None]:
+    """Score holiday-adjacent risk for the proposed deployment timestamp."""
     is_near, description = _is_holiday_or_eve(dt.date())
     if is_near:
         return 20, description
@@ -116,6 +119,7 @@ def _holiday_risk(dt: datetime) -> tuple[int, str | None]:
 def _release_proximity_risk(
     dt: datetime, release_date: date | None
 ) -> tuple[int, str | None]:
+    """Score extra risk when deploying near a planned release date."""
     if release_date is None:
         return 0, None
     delta = abs((dt.date() - release_date).days)

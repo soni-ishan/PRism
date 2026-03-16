@@ -72,10 +72,12 @@ class Base(DeclarativeBase):
 
 
 def _uuid() -> str:
+    """Return a new UUID4 string for primary keys."""
     return str(uuid.uuid4())
 
 
 def _now() -> datetime:
+    """Return the current timezone-aware UTC timestamp."""
     return datetime.now(timezone.utc)
 
 

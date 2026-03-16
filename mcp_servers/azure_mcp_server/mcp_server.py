@@ -17,6 +17,7 @@ class AzureMCPServer:
     """Thin wrapper around PRism's Azure AI Search query/ingest modules."""
 
     def __init__(self, recreate_index: bool = False, index_name: str | None = None):
+        """Initialize index state and cache a SearchClient for follow-up queries."""
         from mcp_servers.azure_mcp_server.setup import create_index
 
         self._index_name = index_name

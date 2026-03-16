@@ -135,6 +135,7 @@ async def _import_and_run_agents(
     # Lazy imports so the Orchestrator doesn't crash if a teammate's
     # module has a transient import-time error.
     async def _run_timing() -> AgentResult:
+        """Execute Timing Agent with tracing instrumentation."""
         async with trace_agent_call("Timing Agent") as span:
             from agents.timing_agent import run as run_timing
             result = await run_timing(deploy_timestamp=payload.timestamp)
@@ -142,6 +143,7 @@ async def _import_and_run_agents(
             return result
 
     async def _run_diff() -> AgentResult:
+        """Execute Diff Analyst with tracing instrumentation."""
         async with trace_agent_call("Diff Analyst") as span:
             from agents.diff_analyst import run as run_diff
             result = await run_diff(diff=payload.diff, changed_files=payload.changed_files)
@@ -149,6 +151,7 @@ async def _import_and_run_agents(
             return result
 
     async def _run_history() -> AgentResult:
+        """Execute History Agent with tracing instrumentation."""
         async with trace_agent_call("History Agent") as span:
             from agents.history_agent import run as run_history
             return await run_history(
@@ -157,6 +160,7 @@ async def _import_and_run_agents(
             )
 
     async def _run_coverage() -> AgentResult:
+        """Execute Coverage Agent with tracing instrumentation."""
         async with trace_agent_call("Coverage Agent") as span:
             from agents.coverage_agent import run as run_coverage
             return await run_coverage(
@@ -331,6 +335,7 @@ def create_kernel():
             ),
         )
         async def analyze(self, timestamp: str = "") -> str:
+            """Run Timing Agent and return serialized AgentResult JSON."""
             from agents.timing_agent import run as run_timing
 
             ts = _parse_iso_timestamp(timestamp) if timestamp else None
@@ -350,6 +355,7 @@ def create_kernel():
             ),
         )
         async def analyze(self, diff: str = "", changed_files: str = "") -> str:
+            """Run Diff Analyst with CSV changed-files input and return JSON."""
             from agents.diff_analyst import run as run_diff
 
             files = [f.strip() for f in changed_files.split(",") if f.strip()]
@@ -369,6 +375,7 @@ def create_kernel():
             ),
         )
         async def analyze(self, changed_files: str = "") -> str:
+            """Run History Agent for CSV changed-files input and return JSON."""
             from agents.history_agent import run as run_history
 
             files = [f.strip() for f in changed_files.split(",") if f.strip()]
@@ -388,6 +395,7 @@ def create_kernel():
             ),
         )
         async def analyze(self, pr_number: str = "0", repo: str = "") -> str:
+            """Run Coverage Agent and return serialized AgentResult JSON."""
             from agents.coverage_agent import run as run_coverage
 
             result = await run_coverage(pr_number=int(pr_number), repo=repo)
@@ -414,6 +422,7 @@ def create_kernel():
             changed_files: str = "",
             timestamp: str = "",
         ) -> str:
+            """Run end-to-end orchestration and return serialized VerdictReport JSON."""
             files = [f.strip() for f in changed_files.split(",") if f.strip()]
             payload = PRPayload(
                 pr_number=int(pr_number),

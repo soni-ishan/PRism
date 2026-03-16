@@ -144,6 +144,7 @@ GITHUB_API_BASE = "https://api.github.com"
 
 
 def _default_orchestrator_url() -> str:
+    """Return the orchestrator URL used when one is not explicitly provided."""
     return os.getenv(
         "PRISM_ORCHESTRATOR_URL",
         "https://prism-dev-orchestrator.orangemushroom-cc646ad1.eastus2.azurecontainerapps.io",
