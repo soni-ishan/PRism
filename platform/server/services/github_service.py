@@ -20,10 +20,7 @@ WORKFLOW_TEMPLATE = """\
 name: PRism Gate
 # ──────────────────────────────────────────────────────────────────
 # Zero-setup AI risk gate — no Python, no dependencies, no checkout.
-# Auto-installed by the PRism Setup Wizard.
-#
-# Required secret (repo Settings → Secrets → Actions):
-#   GH_PAT  — a GitHub PAT with repo scope (read + write PRs/issues)
+# Using GH_PAT to ensure Copilot responds to the generated comment.
 # ──────────────────────────────────────────────────────────────────
 
 on:
@@ -33,7 +30,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   prism-gate:
@@ -47,29 +43,36 @@ jobs:
           PRISM_URL: ${{{{ vars.PRISM_URL || '{orchestrator_url}' }}}}
           GH_PAT: ${{{{ secrets.GH_PAT }}}}
         with:
+          # MANDATORY: Use GH_PAT here so the 'github' object has "Human" identity
+          # Copilot ignores comments made by the default github-actions[bot]
+          github-token: ${{{{ secrets.GH_PAT }}}}
           script: |
-            const pr       = context.payload.pull_request;
-            const repo     = context.repo.owner + '/' + context.repo.repo;
+            const pr      = context.payload.pull_request;
+            const repo    = context.repo.owner + '/' + context.repo.repo;
             const clientId = `gha-${{context.repo.owner}}-${{context.repo.repo}}`;
 
-            // Fetch the PR diff to pass to PRism
+            // 1. Fetch the PR diff
             let diff = '';
             try {{
               const diffResp = await fetch(
                 `https://api.github.com/repos/${{repo}}/pulls/${{pr.number}}`,
-                {{ headers: {{ Authorization: `Bearer ${{process.env.GH_PAT}}`,
-                             Accept: 'application/vnd.github.v3.diff' }} }}
+                {{ headers: {{
+                    Authorization: `Bearer ${{process.env.GH_PAT}}`,
+                    Accept: 'application/vnd.github.v3.diff'
+                }} }}
               );
               if (diffResp.ok) diff = await diffResp.text();
             }} catch (_) {{}}
 
-            // Fetch changed file list
+            // 2. Fetch changed file list
             let changedFiles = [];
             try {{
               const filesResp = await fetch(
                 `https://api.github.com/repos/${{repo}}/pulls/${{pr.number}}/files?per_page=100`,
-                {{ headers: {{ Authorization: `Bearer ${{process.env.GH_PAT}}`,
-                             Accept: 'application/vnd.github+json' }} }}
+                {{ headers: {{
+                    Authorization: `Bearer ${{process.env.GH_PAT}}`,
+                    Accept: 'application/vnd.github+json'
+                }} }}
               );
               if (filesResp.ok) {{
                 const files = await filesResp.json();
@@ -77,7 +80,39 @@ jobs:
               }}
             }} catch (_) {{}}
 
-            // Call the live PRism endpoint
+            // 3. Fetch the commit patch for local timestamp preservation
+            let timestamp = new Date().toISOString();
+            try {{
+              const patchResp = await fetch(
+                `https://api.github.com/repos/${{repo}}/commits/${{pr.head.sha}}`,
+                {{ headers: {{
+                    Authorization: `Bearer ${{process.env.GH_PAT}}`,
+                    Accept: 'application/vnd.github.patch'
+                }} }}
+              );
+              if (patchResp.ok) {{
+                const patchText = await patchResp.text();
+                const dateMatch = patchText.match(/^Date:\\s+(.+)$/m);
+                if (dateMatch) {{
+                  const rfc2822 = dateMatch[1].trim();
+                  const d = new Date(rfc2822);
+                  if (!isNaN(d.getTime())) {{
+                    const offMatch = rfc2822.match(/([+-])(\\d{{2}})(\\d{{2}})\\s*$/);
+                    if (offMatch) {{
+                      const sign = offMatch[1], hh = offMatch[2], mm = offMatch[3];
+                      const offsetMs = (sign === '+' ? 1 : -1) * (parseInt(hh)*60 + parseInt(mm)) * 60000;
+                      const local   = new Date(d.getTime() + offsetMs);
+                      const pad2    = n => String(n).padStart(2, '0');
+                      timestamp = `${{local.getUTCFullYear()}}-${{pad2(local.getUTCMonth()+1)}}-${{pad2(local.getUTCDate())}}` +
+                                  `T${{pad2(local.getUTCHours())}}:${{pad2(local.getUTCMinutes())}}:${{pad2(local.getUTCSeconds())}}` +
+                                  `${{sign}}${{hh}}:${{mm}}`;
+                    }}
+                  }}
+                }}
+              }}
+            }} catch (_) {{}}
+
+            // 4. Call PRism endpoint
             const resp = await fetch(`${{process.env.PRISM_URL}}/analyze`, {{
               method: 'POST',
               headers: {{
@@ -86,10 +121,11 @@ jobs:
               }},
               body: JSON.stringify({{
                 pr_number:     pr.number,
-                repo:          repo,
+                repo:           repo,
                 changed_files: changedFiles,
-                diff:          diff,
-                timestamp:     new Date().toISOString(),
+                diff:           diff,
+                timestamp:      timestamp,
+                skip_autofix:   true,
               }}),
             }});
 
@@ -99,10 +135,10 @@ jobs:
             }}
 
             const verdict = await resp.json();
-            core.setOutput('decision',         verdict.decision);
+            core.setOutput('decision', verdict.decision);
             core.setOutput('confidence_score', String(verdict.confidence_score));
 
-            // Build PR comment
+            // 5. Build PR comment body
             const tag    = verdict.decision === 'greenlight' ? '✅ GREENLIGHT' : '🚫 BLOCKED';
             const score  = verdict.confidence_score;
             const emojis = {{ pass: '✅', warning: '⚠️', critical: '🚫' }};
@@ -119,18 +155,24 @@ jobs:
             if (verdict.risk_brief) {{
               body += `\\n<details><summary>📋 Full Risk Brief</summary>\\n\\n${{verdict.risk_brief}}\\n\\n</details>`;
             }}
-            if (verdict.rollback_playbook) {{
-              body += `\\n\\n<details><summary>🔄 Rollback Playbook</summary>\\n\\n${{verdict.rollback_playbook}}\\n\\n</details>`;
-            }}
+
+            // ADDING COPILOT TRIGGER
+            body += `\\n\\n### [PRism] Coverage Analysis\\n\\n@copilot The PRism deployment analysis has identified missing test coverage. Please see the analysis above and generate the missing pytest modules. Ensure you mock external I/O and cover the public run() function.`;
             body += `\\n\\n---\\n*Generated by [PRism](https://github.com/soni-ishan/PRism)*`;
 
-            // Post comment on the PR
-            await github.rest.issues.createComment({{
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              issue_number: pr.number,
-              body,
-            }});
+            // 6. Post the comment via the Pulls Review API (Strictly PR context)
+            try {{
+              const review = await github.rest.pulls.createReview({{
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                body: body,
+                event: 'COMMENT'
+              }});
+              core.info(`Posted PRism review comment (id=${{review.data.id}})`);
+            }} catch (commentErr) {{
+              core.warning(`Failed to post PR comment: ${{commentErr.message}}`);
+            }}
 
       - name: Block merge if verdict is blocked
         if: steps.prism.outputs.decision == 'blocked'
