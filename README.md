@@ -175,7 +175,7 @@ To override, a maintainer with write access must manually approve.
 ## Project Structure
 
 ```
-microsoft-ai-dev-days/
+PRism/
 ├── .github/
 │   ├── workflows/
 │   │   ├── ci.yml                  # PRism dogfeeds its own CI gate
@@ -204,7 +204,6 @@ microsoft-ai-dev-days/
 ├── function_deploy/                # Azure Function app (incident ingestion triggers)
 ├── vscode_extension/               # PRism Confidence Sidebar (TypeScript)
 ├── tests/                          # Unit + integration test suite
-├── scripts/                        # DB migrations + utility scripts
 ├── architecture.mermaid            # System architecture diagram
 ├── requirements.txt
 └── .env.example

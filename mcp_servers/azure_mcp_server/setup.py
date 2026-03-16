@@ -146,6 +146,7 @@ def validate_credentials() -> dict[str, bool]:
 # ── CLI ──────────────────────────────────────────────────────
 
 def main():
+    """CLI entrypoint that validates env and creates the search index."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     recreate = "--recreate" in sys.argv

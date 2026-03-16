@@ -35,6 +35,7 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
 
 def _utc_now_iso() -> str:
+    """Return the current UTC timestamp in compact ISO-8601 format."""
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

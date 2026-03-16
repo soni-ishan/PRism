@@ -10,7 +10,7 @@ Azure infrastructure-as-code for deploying the full PRism stack. Deploy in order
 
 - Azure CLI (`az`) logged in (`az login`)
 - Docker Desktop running (for container image builds)
-- Copy `parameters.example.json` to `parameters.json` in each subfolder and fill in values
+- Copy `parameters.example.json` to `parameters.json` in `deployment_config/` and fill in values
 
 ## Folder Structure
 
@@ -19,6 +19,8 @@ deployment_config/
   infra/              ← shared Azure resources (one-time setup)
   orchestrator/       ← orchestrator container app + Dockerfile
   platform/           ← platform container app + Dockerfile
+  parameters.example.json  ← shared parameter template used by deploy scripts
+  parameters.json          ← local secrets/config (git-ignored)
   generate-env.ps1    ← generate .env files from deployed Azure resources
   cleanup.ps1         ← delete resource group + purge soft-deleted resources
 ```
@@ -76,15 +78,17 @@ Deploys the PRism Setup Platform (`platform/`) on port 8080. Exposes the setup w
 
 ## Parameter Files
 
-Each folder has its own `parameters.json` (secrets, git-ignored) and `parameters.example.json` (template, committed):
+Deploy scripts default to a single shared file: `deployment_config/parameters.json`.
 
-| Folder | Key Parameters |
+The root `parameters.example.json` includes values for infra, orchestrator, and platform in one place:
+
+| Scope | Key Parameters |
 |---|---|
-| `infra/parameters.json` | Region, OpenAI model config, PostgreSQL admin creds |
-| `orchestrator/parameters.json` | GitHub PAT, repo info, OpenAI deployment name |
-| `platform/parameters.json` | PostgreSQL creds, GitHub OAuth secrets, JWT secret, encryption key |
+| `infra` | Region, OpenAI model config, PostgreSQL admin creds |
+| `orchestrator` | GitHub webhook secret, agent timeout |
+| `platform` | OAuth settings, JWT secret, encryption key, platform origin |
 
-> **Security note:** `parameters.json` files contain secrets and are git-ignored. Only `parameters.example.json` files are committed to the repository.
+> **Security note:** `parameters.json` contains secrets and is git-ignored. Keep only `parameters.example.json` in source control.
 
 ## CI/CD via GitHub Actions
 

@@ -99,6 +99,7 @@ def upload_sample_data() -> None:
 
 
 def main():
+    """CLI entrypoint for uploading demo incidents to Azure AI Search."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     print("=" * 60)

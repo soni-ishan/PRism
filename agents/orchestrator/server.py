@@ -110,6 +110,7 @@ def _evict_expired_usage() -> None:
 
 
 def check_freemium_limit(x_client_id: Optional[str] = Header(None)):
+    """Validate caller credits and increment usage for freemium-gated routes."""
     if not x_client_id:
         raise HTTPException(status_code=400, detail="Missing X-Client-ID header")
     if _RATE_LIMITING_DISABLED:
@@ -197,6 +198,7 @@ async def _lookup_repo_context(full_repo: str) -> RepoContext | None:
 
 @app.get("/health")
 async def health():
+    """Return a lightweight service health response."""
     return {"status": "ok", "service": "prism"}
 
 

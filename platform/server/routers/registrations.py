@@ -66,6 +66,7 @@ class RegistrationResponse(BaseModel):
 
 
 def _to_response(r: RegistrationRow) -> dict:
+    """Serialize a RegistrationRow into the public API response shape."""
     return {
         "id": r.id,
         "owner": r.owner,

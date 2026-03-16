@@ -186,6 +186,7 @@ class VerdictReport(BaseModel):
 
     @model_validator(mode="after")
     def _check_invariants(self) -> "VerdictReport":
+        """Enforce decision/playbook invariants for aggregated verdicts."""
         has_critical = any(r.status == "critical" for r in self.agent_results)
         if has_critical and self.decision != "blocked":
             raise ValueError("Decision must be 'blocked' when any agent is critical")

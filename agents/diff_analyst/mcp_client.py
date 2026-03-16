@@ -32,6 +32,7 @@ def _extract_text_from_tool_result(result: Any) -> str:
 
 
 def _get_github_token() -> str:
+    """Return a GitHub PAT from supported env vars or raise a clear error."""
     token = os.environ.get("GH_PAT") or os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Missing GitHub token. Set GH_PAT or GITHUB_PERSONAL_ACCESS_TOKEN.")
