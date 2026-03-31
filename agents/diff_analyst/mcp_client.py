@@ -49,7 +49,6 @@ async def fetch_pr_diff_async(owner: str, repo: str, pr_number: int) -> str:
     # Provide token under both names to reduce surprises across environments.
     server_env = {
         "GH_PAT": token,
-        "GITHUB_PERSONAL_ACCESS_TOKEN": token,
         "GITHUB_READ_ONLY": "1",
     }
 
@@ -64,7 +63,9 @@ async def fetch_pr_diff_async(owner: str, repo: str, pr_number: int) -> str:
         read, write = await exit_stack.enter_async_context(stdio_client(server_params))
         session = await exit_stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
-
+        print("OWNER:", owner)
+        print("REPO:", repo)
+        print("PR_NUMBER:", pr_number)
         result = await session.call_tool(
             "get_pull_request_files",
             {"owner": owner, "repo": repo, "pull_number": pr_number},
