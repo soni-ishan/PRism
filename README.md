@@ -6,6 +6,8 @@
 
 ### Agentic Pre-Deployment Risk Gate, Powered by Microsoft AI Platform
 
+🏆 **Grand Prize Winner - Microsoft AI Dev Days Hackathon 2026** · *Automate and Optimize Software Delivery - Agentic DevOps* ([official announcement](https://techcommunity.microsoft.com/blog/azure-events/announcing-the-ai-dev-days-hackathon-winners/4513528))
+
 > *Every engineer has shipped a breaking change. Tests passed. Linter was clean. And then production went down.*
 >
 > *PRism exists because "tests pass" ≠ "safe to ship."*
